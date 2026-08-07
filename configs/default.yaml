@@ -1,0 +1,51 @@
+# Default parameters for the steatosis pseudo-labeling pipeline.
+# Copy this file, edit, and pass with --config to tune without touching code.
+
+output_dir: outputs
+limit: 0                       # 0 = all tiles; otherwise stop after N tiles
+
+tissue:
+  level: 2                     # pyramid level for detection (16x downsample here)
+  method: otsu                 # otsu | fixed
+  saturation_threshold: 25     # used only when method: fixed
+  max_value: 245               # HSV V above this is forced to background
+  close_radius_um: 20.0
+  open_radius_um: 10.0
+  min_object_area_um2: 50000.0 # speck/dust removal
+  max_hole_area_um2: 200000.0  # fill interior holes below this
+  keep_largest_n: 0            # 0 = keep every surviving component
+
+# --- the stages below are scaffolded but not yet wired up (phases 2-5) ---
+
+tiling:
+  tile_size: 512
+  stride: 512
+  level: 0
+  min_tissue_fraction: 0.5
+  save_tiles: true
+
+fat:
+  method: fixed                # fixed | otsu
+  white_threshold: 200
+  fill_holes: true
+  open_radius_px: 2
+  close_radius_px: 2
+  min_area_um2: 20.0           # macrovesicular lower bound (~5 um diameter)
+  max_area_um2: 2000.0         # macrovesicular upper bound (~50 um diameter)
+  circularity_min: 0.65
+  solidity_min: 0.85
+  max_eccentricity: 0.80       # ellipse eccentricity ceiling; rejects lumens
+  include_microvesicular: false
+  micro_min_area_um2: 3.0
+  micro_max_area_um2: 20.0
+  micro_circularity_min: 0.5
+  micro_solidity_min: 0.8
+  exclude_border: false
+
+qc:
+  contact_sheet_tiles: 16
+  contact_sheet_cols: 4
+  random_seed: 0
+  outline_color: [255, 0, 0]
+  outline_thickness: 2
+  thumbnail_max_dim: 2000

@@ -1,0 +1,113 @@
+# Parameters tuned against a known-positive and a known-negative cohort.
+#
+# Revision 2 (2026-08-06, afternoon) -- retuned after 9 more MASH slides arrived.
+# Reproduce with:
+#
+#   .venv/bin/python -m steatosis.cli sweep \
+#     --group MASH=data/R25-264_MASH_HE --group CCl4=data/2026-04-20_CCl4_HE \
+#     --config configs/tuned.yaml --tiles 60 --workers 8 \
+#     --white 200,210,220 --circ 0.55,0.60,0.65 --sol 0.85,0.90 \
+#     --min-area 20,40,60,80 --ecc 0.70,0.75,0.80,0.85,1.0
+#
+# Method: 60 random tiles from each of 14 MASH slides (fat expected) and each of
+# 37 CCl4 slides (fat-free -- fibrosis model, so anything detected there is a
+# false positive). 360 parameter cells scored on positive signal retained vs
+# false positive produced. Grid in outputs/sweep_ecc_14v37.csv.
+#
+# Why revision 1 needed redoing: it was tuned on 5 MASH slides that were all
+# moderate-to-severe (7.7-15.2% macro). The 9 new slides span 2.5-12%, and on
+# the mild ones revision 1 was visibly missing large, obvious, round droplets --
+# white_threshold 220 plus solidity 0.90 rejected any droplet with a slightly
+# ragged or scalloped border. Tuning on severe slides alone hid this because
+# severe slides have enough clean droplets to look fine.
+#
+#   metric (14 MASH vs 37 CCl4)      rev 1    rev 2
+#   MASH macro, mean                  8.87     9.37   signal recovered, not lost
+#   MASH macro, weakest slide         2.48     3.69
+#   CCl4 macro, mean (false pos)      0.239    0.17
+#   CCl4 macro, worst slide           0.57     0.34
+#   worst-case separation           4.3:1   10.8:1
+#
+# Revision 2 beats revision 1 on all four metrics simultaneously; 32 of the 360
+# cells did, and this is the one among them that retains the most real signal.
+#
+# What changed and why:
+#   max_eccentricity  NEW at 0.80. This is the substantive change. Elongated
+#     vessel and sinusoidal lumens were the dominant false positive, and
+#     circularity does not catch them -- 4*pi*A/P^2 measures boundary
+#     raggedness, so a smooth 2.5:1 lumen scores ~0.87 and passes. An explicit
+#     ellipse-eccentricity ceiling targets them directly: it costs 6-10% of
+#     MASH signal (uniformly across severity, so slide ranking is preserved)
+#     while removing 40-64% of CCl4 false positives.
+#   min_area_um2      20 -> 40. False positives cluster just above the old
+#     floor (CCl4 median component 25-28 um2) while real droplets sit at
+#     56-76 um2. Unlike raising white_threshold this is a whole-component
+#     decision, so it does not erode the boundaries of droplets that are kept.
+#   white_threshold   220 -> 210. Reverted most of revision 1's tightening.
+#     Raising it shrinks every accepted droplet, which biases area down and
+#     degrades the pseudo-label boundary the U-Net will learn from. With size
+#     and eccentricity doing the rejection work it is no longer needed.
+#   circularity_min   0.65 -> 0.55. Was carrying the elongation-rejection load
+#     it is bad at, and paying for it by rejecting ragged real droplets.
+#   solidity_min      0.90 -> 0.85, back to the original. 0.90 was rejecting
+#     real droplets on mild slides.
+#
+# Rejected after testing: an unstained-ness (low HSV saturation) criterion for
+# separating fat voids from pale cytoplasm. Measured and it does not work --
+# CCl4 false positives have median interior saturation 14.0, *lower* than real
+# droplets on the mild MASH slides at 15.3. Interior color cannot separate them.
+
+output_dir: outputs
+limit: 0
+
+tissue:
+  level: 2
+  method: otsu
+  saturation_threshold: 25
+  max_value: 245
+  close_radius_um: 20.0
+  open_radius_um: 10.0
+  min_object_area_um2: 50000.0
+  max_hole_area_um2: 200000.0
+  keep_largest_n: 0
+
+tiling:
+  tile_size: 512
+  stride: 512
+  level: 0
+  min_tissue_fraction: 0.5
+  save_tiles: true
+
+fat:
+  method: fixed
+  white_threshold: 210
+  fill_holes: true
+  open_radius_px: 2
+  close_radius_px: 2
+  min_area_um2: 40.0          # also the macro/micro split point
+  max_area_um2: 2000.0
+  circularity_min: 0.55
+  solidity_min: 0.85
+  max_eccentricity: 0.80      # rejects elongated vessel/sinusoidal lumens
+  # Microvesicular still has no discriminative power: across 14 MASH and 37
+  # CCl4 slides it reads 0.74% vs 0.53% (1.4:1) while macro reads 55:1, and
+  # the single highest micro value in either cohort belongs to a fat-free CCl4
+  # slide. It stays measured but out of the exported labels.
+  include_microvesicular: false
+  micro_min_area_um2: 3.0
+  micro_max_area_um2: 40.0
+  micro_circularity_min: 0.5
+  micro_solidity_min: 0.8
+  exclude_border: false
+
+qc:
+  contact_sheet_tiles: 16
+  contact_sheet_cols: 4
+  random_seed: 0
+  outline_color: [255, 0, 0]
+  macro_color: [255, 0, 0]
+  micro_color: [0, 190, 255]
+  outline_thickness: 2
+  thumbnail_max_dim: 2000
+  save_per_tile_qc: true
+  histogram_bins: 12

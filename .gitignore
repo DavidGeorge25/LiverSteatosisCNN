@@ -1,0 +1,8 @@
+.venv/
+outputs/
+data/
+*.svs
+__pycache__/
+*.pyc
+.DS_Store
+outputs_ccl4/
