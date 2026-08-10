@@ -74,10 +74,14 @@ Not supported by anything here — do not put these in the grant:
 - Any accuracy figure (Dice/IoU/precision/recall). There is no reference
   segmentation, so none can be computed.
 - Absolute fat percentages as calibrated measurements. The parameter sweep moves
-  cohort mean fat over 6.82–10.91% while separation stays saturated at AUC 1.000;
-  slide-resampled mean is 9.4%, 95% CI [7.18, 11.40]. Relative comparisons
-  between slides under identical parameters are well supported; absolute values
-  are not.
+  cohort mean fat over 6.82–10.91%, and an individual slide over 1.67–5.16%
+  (3.1×), while separation stays saturated at AUC 1.000. Slide-resampled mean is
+  9.4%, 95% CI [7.18, 11.40].
+- **Fold-changes.** Ordinal comparisons survive the sweep — slide rank order
+  holds at Spearman ρ ≥ 0.912 across all 64,620 pairs of the 360 parameter cells
+  (mean 0.973). Ratios do not: the R25-264-12 vs R25-264-34 difference is 3.2×
+  under one cell and 6.8× under another, and the cohort MASH:control contrast
+  ranges 15:1 to 150:1. Say "ranks higher than", not "3× more than".
 - Sensitivity. The negative control bounds false positives only; there is no way
   here to measure what the pipeline misses.
 - Microvesicular steatosis. Measured but excluded from labels — it separates the
