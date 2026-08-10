@@ -52,7 +52,7 @@ DPI = 300
 # mistaken for fat -- so the figure shows the specificity behaviour too.
 PANEL_SPECS = [
     ("R25-264-32__tile_x027136_y024576", "Steatotic (severe)"),
-    ("R25-264-10__tile_x018944_y005120", "Steatotic (moderate)"),
+    ("R25-264-10__tile_x016896_y012288", "Steatotic (moderate)"),
     ("R26-122-23_HE_91__tile_x022016_y010240", "Fat-free control (CCl$_4$)"),
 ]
 
