@@ -1,12 +1,17 @@
 # Ballooning — annotation study
 
 Thank you for doing this. One page, about two minutes. Everything here is also
-in `README.txt` inside the folder, so nothing is lost if this note is.
+on the page itself, so nothing is lost if this note is.
+
+**Open the link and it starts.** Nothing to download, nothing to install.
+Please use **Chrome or Edge** — they let the page write your answers straight
+to a file on your own computer as you go. Safari and Firefox cannot, and will
+say so; there your work is kept in the browser and you press "Save a copy" to
+get the file out.
 
 ## The package
 
-`Ballooning_Study` — 146 sections, 18 fields each, spread over as many sittings
-as you like. Doing all of it is roughly 11 hours, and **there is no expectation
+146 sections, 18 fields each, spread over as many sittings as you like. Doing all of it is roughly 11 hours, and **there is no expectation
 that you will.** There is no deadline and no need to finish.
 
 The sections are ordered so that stopping anywhere still leaves a fair sample:
