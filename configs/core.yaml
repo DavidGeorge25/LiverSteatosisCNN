@@ -1,0 +1,91 @@
+# Shared parameters: everything that is not specific to one feature.
+#
+# Layer this with a feature file:
+#   python -m mashpath.cli steatosis --slide X.svs \
+#       --config configs/core.yaml --config configs/steatosis.yaml
+#
+# Files are applied left to right, so a later file wins. The single-file
+# configs (default.yaml, tuned.yaml) still work exactly as before.
+
+output_dir: outputs
+limit: 0                       # 0 = all tiles; otherwise stop after N tiles
+
+slide:
+  # Microns per pixel at level 0, for formats that do not embed it. Aperio SVS
+  # does (0.4953 um/px on this cohort), so these stay null and the slide's own
+  # value is used. A plain TIFF usually does not -- the reader then refuses to
+  # open it rather than guess, because every filter below is in microns and a
+  # wrong scale would silently rescale all of them.
+  mpp_x: null
+  mpp_y: null
+  override_mpp: false          # use the values above even when the slide has its own
+  max_in_memory_megapixels: 64.0   # tifffile-fallback guard; see core/slide.py
+
+tissue:
+  level: 2                     # pyramid level for detection (16x downsample here)
+  method: otsu                 # otsu | fixed
+  saturation_threshold: 25     # used only when method: fixed
+  max_value: 245               # HSV V above this is forced to background
+  close_radius_um: 20.0
+  open_radius_um: 10.0
+  min_object_area_um2: 50000.0 # speck/dust removal
+  max_hole_area_um2: 200000.0  # fill interior holes below this
+  keep_largest_n: 0            # 0 = keep every surviving component
+
+tiling:
+  tile_size: 512
+  stride: 512                  # == tile_size means non-overlapping
+  level: 0
+  min_tissue_fraction: 0.5
+  save_tiles: true
+
+qc:
+  contact_sheet_tiles: 16
+  contact_sheet_cols: 4
+  random_seed: 0
+  outline_color: [255, 0, 0]
+  macro_color: [255, 0, 0]
+  micro_color: [0, 190, 255]
+  outline_thickness: 2
+  thumbnail_max_dim: 2000
+  save_per_tile_qc: true
+  histogram_bins: 12
+
+review:
+  # Candidate export for pathologist confirmation. Used by ballooning and
+  # inflammation, which cannot be pseudo-labelled.
+  context_um: 150.0            # crop width in MICRONS, so neighbouring cells
+                               # are always in frame at the same physical scale
+  max_per_slide: 200
+  strata: 4                    # score bands sampled evenly, so extremes appear
+  seed: 0
+  save_overlay: true
+  overlay_color: [255, 0, 0]
+  overlay_thickness: 2
+
+stain:
+  # Stain normalization, OFF by default. Turning it on is an experiment, not a
+  # tidy-up: batch is confounded with cohort here, so the only way to know
+  # whether normalization helped is to run held-out-batch evaluation with it on
+  # and with it off and compare. See mashpath/train/stain.py.
+  enabled: false
+  method: none                 # none | macenko | reinhard
+  reference_image: ""          # a tile to take the target appearance from;
+                               # empty uses the literature H&E reference
+  beta: 0.15                   # optical-density floor; below this is glass
+  alpha: 1.0                   # angle percentile for the stain vectors
+
+augment:
+  # Colour augmentation at training time, ON by default and deliberately
+  # stronger than a typical ImageNet recipe: the nine staining batches differ
+  # by more than a mild jitter spans, and a jitter narrower than the real
+  # between-batch variation teaches invariance over the wrong range.
+  strength: strong             # none | mild | strong
+  hue: 0.10                    # full width, so +/- 0.05 turns (+/- 18 degrees)
+  saturation: 0.60
+  brightness: 0.50
+  contrast: 0.50
+  gamma: 0.40
+  stain_sigma: 0.25            # per-stain multiplicative jitter in OD space
+  stain_bias: 0.05             # per-stain additive jitter in OD space
+  probability: 0.9

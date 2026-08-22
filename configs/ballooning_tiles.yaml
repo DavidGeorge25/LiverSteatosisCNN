@@ -1,0 +1,121 @@
+# Hepatocyte ballooning -- TILE-LEVEL labelling set.
+#
+#   python -m mashpath.review.tileset \
+#       --slide-dir data/R25-264_MASH_HE --slide-dir data/2026-04-20_CCl4_HE \
+#       --score-dir bal_chunks --score-dir bal_local \
+#       --config configs/core.yaml --plan configs/ballooning_tiles.yaml \
+#       --out review_sets/ballooning_tiles_v1
+#
+# This file governs the DRAW, not the detector. Detector parameters stay in
+# configs/ballooning.yaml, and this set exists precisely because those are not
+# trustworthy enough to define a label -- the score does not separate cohorts
+# and the pathologist rejected the whole top band on 2026-08-16.
+#
+# The scheme is Heinemann et al. 2019 (Sci Rep): tile-level binary labels,
+# class 0 = no ballooned hepatocyte anywhere in the tile, class 1 = one or
+# more. Nobody circles a cell. Two reasons, and the second is the stronger:
+# cell-level annotation is roughly 10x slower per unit of supervision, and
+# Brunt et al. 2022 showed nine expert hepatopathologists disagree
+# substantially about WHICH individual cells are ballooned -- so a cell-level
+# ground truth is partly an artefact of who drew it, while "does this field
+# contain one" is the question the grading criteria are actually built on.
+
+tileset:
+
+  # ---- size of the ask -----------------------------------------------------
+  # 1400, and the binding constraint is GEOMETRY, not her time.
+  #
+  # The time budget alone would allow 1900 = (7 h x 0.83 duty) / 11 s per
+  # field. But with 14 MASH slides supplying 80% of the set, 1900 cannot be
+  # drawn while keeping `min_tile_separation: 2` -- the draw falls back to 1
+  # and 64% of the tiles then touch another drawn tile. Two adjacent 512 px
+  # tiles are 253.6 um apart and largely the same lobular region, so those are
+  # not independent fields.
+  #
+  # Measured on the real frame (10,070 tiles, 32 slides):
+  #
+  #   n=1900 -> separation 1, 878 touching pairs, 64% of tiles involved
+  #   n=1600 -> separation 1, 602 touching pairs, 57%
+  #   n=1400 -> separation 2, ZERO touching pairs
+  #
+  # 1900 is therefore worse than 1400, not better: counting a touching pair as
+  # roughly one field of information rather than two puts 1900 at ~1270
+  # effective independent fields, BELOW the 1260 that 1400 delivers outright --
+  # while spending 500 more of her decisions to get there. Volume over
+  # diversity loses on its own terms here.
+  #
+  # 1400 x 11 s = 4.3 h effective = ~5.1 h gross = about 3 sessions.
+  #
+  # The 11 s is an ESTIMATE and the single least certain number here --
+  # extrapolated from ~8 s per single-cell call in the candidate round,
+  # adjusted upward because a tile-level negative is a SEARCH ("no ballooned
+  # cell anywhere in ~120 hepatocytes") rather than a judgment about one
+  # outlined object. Validate it on the pilot.
+  #
+  # To go back above 1400, add SLIDES -- more window per slide does not help,
+  # because separation binds within a window. Fetching the 44 already-scored
+  # cluster slides is what unlocks it.
+  n_presentations: 1400
+
+  # Shown twice, hundreds of presentations apart, under a different id.
+  # Intra-rater agreement is the ceiling on what any model can score against,
+  # and for ballooning specifically it cannot be assumed high.
+  duplicate_fraction: 0.10
+
+  # Held out by SLIDE, not by tile: a tile-wise split lets a model recognise a
+  # slide's stain and section thickness from its training tiles and score its
+  # test tiles on that, reporting generalisation it does not have.
+  test_slide_fraction: 0.25
+
+  # ---- what gets into the frame -------------------------------------------
+  min_tissue_fraction: 0.80   # the pipeline's own floor is 0.5; see tileset.py
+
+  # ---- enrichment ----------------------------------------------------------
+  # A set that is 95% negative wastes her time; a set built 50/50 misrepresents
+  # prevalence and gives a model a prior it will never see again. `anchor` is
+  # an UNCONDITIONAL uniform draw -- the only stratum that can estimate the
+  # true prevalence, and the one that makes the enriched strata reweightable.
+  # Drop it and the set can only ever report the prevalence of its own
+  # enrichment.
+  band_shares:
+    high:   0.25
+    upper:  0.20
+    mid:    0.15
+    low:    0.15
+    anchor: 0.25
+
+  # Within-slide percentiles of the per-tile score (= max cell score among the
+  # veto-passing hepatocytes in the tile). Within-slide, because a slide-level
+  # staining offset shifts every cell on that slide together, and a cohort-wide
+  # percentile would sort slides rather than tiles.
+  band_percentiles:
+    low:   [0.0, 30.0]
+    mid:   [30.0, 70.0]
+    upper: [70.0, 90.0]
+    high:  [90.0, 100.0]
+
+  # ---- diversity guards ----------------------------------------------------
+  max_slide_share: 0.06       # raised automatically to an even split when
+                              # there are too few slides for this to be met
+  cohort_caps:
+    # CCl4 is a fibrosis / centrilobular-necrosis model. Its hydropic
+    # degeneration is a ballooning MIMIC, which makes its tiles the most
+    # informative hard negatives available -- and makes them dangerous in bulk:
+    # if most negatives came from CCl4, the cheapest thing a CNN could learn is
+    # "this staining batch = negative", which would score well and mean nothing.
+    CCl4: 0.20
+
+  min_tile_separation: 2      # tile-grid Chebyshev steps between two sampled
+                              # tiles on one slide; 20 tiles from one lobule
+                              # are 20 views of one piece of biology
+  min_duplicate_gap: 120      # presentations between a tile and its repeat
+
+  # ---- what she sees -------------------------------------------------------
+  context_tiles: 3            # 3x3 tiles = 761 um at 0.4953 um/px. Ballooning
+                              # is defined RELATIVE to neighbouring
+                              # hepatocytes, so the neighbours have to be on
+                              # screen or the task is harder than the criteria
+  context_max_px: 1024
+  context_jpeg_quality: 90
+
+  seed: 20260818

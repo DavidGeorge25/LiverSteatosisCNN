@@ -1,0 +1,13 @@
+# Point both StarDist users at the locally cached weights.
+#
+# Compute nodes have no outbound network. Without this, `from_pretrained`
+# tries to download on first use and every array task fails identically --
+# after the scheduler has already handed out the GPUs.
+#
+# Run `python cluster/cache_model.py` on a login node first.
+ballooning:
+  segmentation:
+    model_dir: models/2D_versatile_he
+inflammation:
+  nuclei:
+    model_dir: models/2D_versatile_he

@@ -1,4 +1,6 @@
 .venv/
+.venv-*/          # redundant per-feature venvs; .venv has everything
+models/           # StarDist weights cached by cluster/cache_model.py
 outputs/
 data/
 *.svs
@@ -6,3 +8,23 @@ __pycache__/
 *.pyc
 .DS_Store
 outputs_ccl4/
+
+# Ballooning detector output. bal_chunks/ is ~7 GB of per-cell measurements
+# from the cluster; bal_local/ is the same thing computed on this laptop.
+bal_chunks/
+bal_local/
+logs/
+
+# Tile labelling packages: the PIXELS are large and reproducible from the
+# slides plus the manifest, but the manifest, the sampling frame, the report
+# and above all verdicts.csv are the irreplaceable part -- a pathologist's
+# afternoon does not regenerate. Ignore the images, keep the rest.
+review_sets/**/images/
+review_sets/**/context/
+review_sets/**/tiles/
+
+# The accumulated tissue frame is ~30 MB of CSV and is rewritten on every wave
+# of a fetch, so it goes in gzipped -- pandas reads and writes .gz transparently
+# and it costs about 6 MB instead of 30. It is kept rather than regenerated
+# because regenerating it means re-fetching 52 GB from the cluster.
+review_sets/study_frame.csv

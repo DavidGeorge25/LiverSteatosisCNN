@@ -1,0 +1,38 @@
+# Steatosis (fat droplet) parameters -- the tuned set.
+#
+# Identical to the `fat:` block of configs/tuned.yaml, which records in full
+# how these were selected: 360 parameter cells scored over 14 MASH slides
+# (fat expected) and 37 CCl4 slides (fat-free, so anything found there is a
+# false positive), 60 random tiles each. Read that file before changing a
+# number here.
+#
+#   metric (14 MASH vs 37 CCl4)      rev 1    rev 2 (this file)
+#   MASH macro, mean                  8.87     9.37
+#   MASH macro, weakest slide         2.48     3.69
+#   CCl4 macro, mean (false pos)      0.239    0.17
+#   worst-case separation           4.3:1   10.8:1
+#
+# Use with configs/core.yaml:
+#   --config configs/core.yaml --config configs/steatosis.yaml
+
+fat:
+  method: fixed                # fixed | otsu
+  white_threshold: 210
+  fill_holes: true
+  open_radius_px: 2
+  close_radius_px: 2
+  min_area_um2: 40.0           # also the macro/micro split point
+  max_area_um2: 2000.0
+  circularity_min: 0.55
+  solidity_min: 0.85
+  max_eccentricity: 0.80       # rejects elongated vessel/sinusoidal lumens,
+                               # which circularity does not catch
+  # Microvesicular has no discriminative power: across 14 MASH and 37 CCl4
+  # slides it reads 0.74% vs 0.53% (1.4:1) while macro reads 55:1. It stays
+  # measured but out of the exported labels.
+  include_microvesicular: false
+  micro_min_area_um2: 3.0
+  micro_max_area_um2: 40.0
+  micro_circularity_min: 0.5
+  micro_solidity_min: 0.8
+  exclude_border: false

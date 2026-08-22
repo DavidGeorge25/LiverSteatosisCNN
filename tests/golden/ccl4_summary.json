@@ -1,0 +1,17 @@
+{
+  "border_area_um2": 2979.6821051399997,
+  "border_count": 133,
+  "border_fraction_of_fat": 0.09241100940770008,
+  "macro_area_mm2": 0.004466,
+  "macro_count": 20,
+  "macro_fat_fraction": 0.0018504873357428342,
+  "micro_area_mm2": 0.0277778,
+  "micro_count": 3460,
+  "micro_fat_fraction": 0.011509732896282423,
+  "processed_tissue_area_mm2": 2.4134183,
+  "slide": "R26-122-1_HE_70",
+  "slide_tissue_area_mm2": 76.16804767129396,
+  "tiles_candidate": 1187,
+  "tiles_processed": 40,
+  "total_fat_fraction": 0.013360220232025257
+}

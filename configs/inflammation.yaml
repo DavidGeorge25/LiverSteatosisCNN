@@ -1,0 +1,114 @@
+# Lobular inflammation -- candidate generation.
+#
+# Layer this over the shared settings, which is now REQUIRED:
+#   --config configs/core.yaml --config configs/inflammation.yaml
+#
+# This file used to restate the whole `tissue:` and `tiling:` blocks so it
+# could be passed alone. They were identical to core.yaml except for one line,
+# which meant two copies of every shared default and one real override hidden
+# among them. Only the override survives, below.
+#
+# Stages 1-2 (nucleus segmentation, hepatocyte/immune split) are implemented.
+# Stages 3-5 (portal tract exclusion, focus clustering, candidate export) are
+# NOT -- their parameters live in `features/inflammation/config.py` and are
+# reachable from here, but nothing reads them yet. See `detect.py`.
+
+tiling:
+  # The one genuine departure from core.yaml: nucleus segmentation reads its
+  # own padded tiles, so the shared tile PNGs would be written and never used.
+  save_tiles: false
+
+inflammation:
+
+  # ---- stage 1: nucleus segmentation ------------------------------------
+  nuclei:
+    model_name: 2D_versatile_he   # StarDist H&E model, trained near 20x
+    model_dir: null               # set for offline runs
+    level: 0
+    prob_threshold: null          # null = the model's own (0.692)
+    nms_threshold: null           # null = the model's own (0.3)
+
+    # Segment at 2x. The model was trained near 40x; at this slide's 20x a
+    # 5 um nucleus is only ~10 px across and StarDist misses it outright --
+    # measured on this slide, upscale 1 finds 1,215 nuclei/mm^2 and detects
+    # essentially only hepatocyte nuclei, while upscale 2 finds 2,315/mm^2 and
+    # recovers the small dark population without over-splitting the large
+    # ones. Costs ~4x the compute. Do not lower this without re-checking the
+    # overlay -- at upscale 1 the immune class is empty by construction.
+    upscale: 2
+
+    # Context read around each tile. Only nuclei whose centroid lands in the
+    # core tile are kept, so a nucleus on a seam is measured whole and counted
+    # once. 0 disables it and splits every boundary nucleus in two -- which
+    # lands both halves in the small-and-dark bin, the one that matters here.
+    margin_px: 64
+
+    norm_low_percentile: 1.0
+    norm_high_percentile: 99.8
+
+    min_area_um2: 4.0             # below this is debris and speckle
+    max_area_um2: 400.0           # above this is a merged clump
+    mask_to_tissue: true
+
+  # ---- stage 2: hepatocyte / immune split -------------------------------
+  # Order: debris -> immune -> hepatocyte -> ambiguous. Anything that matches
+  # no rule stays `ambiguous` rather than being forced to a side.
+  classify:
+    intensity_channel: gray       # gray (0-255, lower = darker) | hematoxylin (OD)
+
+    immune_min_area_um2: 6.0      # below this is debris, not a cell
+    immune_max_area_um2: 35.0     # lymphocyte nuclei ~5-7 um across
+    hepatocyte_min_area_um2: 40.0 # hepatocyte nuclei ~7-10 um across
+
+    immune_max_intensity: 110.0   # used when intensity_channel: gray
+    immune_min_hematoxylin: 0.45  # used when intensity_channel: hematoxylin
+    require_dark: true            # false = split on area alone
+
+  # ---- QC ---------------------------------------------------------------
+  nucleus_qc:
+    immune_color: [0, 176, 80]
+    hepatocyte_color: [21, 101, 192]
+    ambiguous_color: [230, 81, 0]
+    outline_thickness: 1
+    fill_alpha: 0.30              # 0 = outline only
+    sample_tiles: 12
+    cols: 3
+    save_full_size_panels: true
+    scatter_max_points: 150000
+    scatter_dpi: 150
+    save_nucleus_csv: true
+
+  # ======================================================================
+  # NOT YET IMPLEMENTED -- shown as comments, not parsed.
+  # ======================================================================
+  # Portal exclusion is the part that decides whether this detector is usable
+  # at all: portal tracts contain immune cells normally, so without it the
+  # detector reports portal inflammation as lobular and scores healthy slides
+  # as inflamed. It is deliberately not built until the stage-2 split above is
+  # shown to separate on real tissue -- there is no point excluding regions
+  # from a class that does not mean anything yet.
+  #
+  # The dataclasses for these already exist, in
+  # mashpath/features/inflammation/config.py (PortalConfig, FociConfig). They
+  # are commented out here because mashpath/config.py currently composes the
+  # inflammation block from three sub-configs by hand rather than from
+  # InflammationConfig; once it uses InflammationConfig, uncomment these.
+  #
+  # portal:
+  #   enabled: true
+  #   method: density             # density | vessel | both
+  #   nucleus_density_min: 6000.0 # nuclei/mm^2 sustained over min_area_um2
+  #   min_area_um2: 10000.0       # ~113 um across; smaller is a focus
+  #   smoothing_um: 40.0
+  #   vessel_min_area_um2: 2000.0 # portal vein lumen; sinusoids are far smaller
+  #   vessel_max_eccentricity: 0.95
+  #   vessel_white_threshold: 215
+  #   exclusion_radius_um: 150.0  # generous: costs recall, buys specificity
+  #   max_excluded_fraction: 0.40 # refuse above this; reported either way
+  #
+  # foci:
+  #   cluster_radius_um: 30.0     # DBSCAN eps over immune centroids
+  #   min_cells: 5                # NASH-CRN counts foci, not cells
+  #   max_cells: 200              # denser than this is a missed tract
+  #   bbox_pad_um: 20.0
+  #   max_candidates_per_tile: 20

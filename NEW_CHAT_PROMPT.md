@@ -18,12 +18,12 @@ Environment is set up — **use `.venv/bin/python`, not system python**
 openslide-python, opencv, scikit-image, scipy, numpy, pandas, pyyaml).
 
 ```bash
-.venv/bin/python -m steatosis.cli info   --slide <path.svs>
-.venv/bin/python -m steatosis.cli tissue --slide <path.svs> --config configs/tuned.yaml
-.venv/bin/python -m steatosis.cli run    --slide <path.svs> --config configs/tuned.yaml --limit 100
-.venv/bin/python -m steatosis.cli batch  --slide-dir <folder> --config configs/tuned.yaml --workers 5
-.venv/bin/python -m steatosis.cli survey --group A=<dir> --group B=<dir> --tiles 60 --workers 8
-.venv/bin/python -m steatosis.cli sweep  --group MASH=<dir> --group CCl4=<dir> --min-area 20,40,60 --ecc 0.75,0.80
+.venv/bin/python -m mashpath.cli info   --slide <path.svs>
+.venv/bin/python -m mashpath.cli tissue --slide <path.svs> --config configs/tuned.yaml
+.venv/bin/python -m mashpath.cli steatosis    --slide <path.svs> --config configs/tuned.yaml --limit 100
+.venv/bin/python -m mashpath.cli batch  --slide-dir <folder> --config configs/tuned.yaml --workers 5
+.venv/bin/python -m mashpath.cli survey --group A=<dir> --group B=<dir> --tiles 60 --workers 8
+.venv/bin/python -m mashpath.cli sweep  --group MASH=<dir> --group CCl4=<dir> --min-area 20,40,60 --ecc 0.75,0.80
 ```
 
 Every threshold is a config parameter or CLI flag — nothing is hardcoded.

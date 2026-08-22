@@ -1,0 +1,42 @@
+# Cohort-scale settings. Layer LAST, over core + the feature config:
+#
+#   --config configs/core.yaml --config configs/steatosis.yaml \
+#   --config configs/production.yaml
+#
+# The only thing this changes is how much per-tile debris a run leaves behind.
+# No detection parameter is touched, so numbers are identical to a development
+# run -- only the QC artefacts differ.
+#
+# WHY. Measured on Fir, one slide of steatosis output:
+#
+#     steatosis/masks/*.png   1486 files
+#     qc/tiles/*.png          1485 files
+#     everything else           18 files
+#                             ---------
+#                             2989 files, 858 MB   PER SLIDE
+#
+# At 260 slides that is ~780,000 files and ~223 GB -- more storage than the
+# slides themselves, and close enough to the 1,000,000-file quota on /scratch
+# that adding ballooning's review crops would breach it. Running out of inodes
+# is a worse failure than running out of bytes: it stops mid-run, on an
+# arbitrary slide, with an error that reads like a permissions problem.
+#
+# What is lost: the ability to look at any individual tile's mask after the
+# fact. What is kept: the per-tile CSV (every measurement, all 1187 rows), the
+# slide summary, the contact sheet, and the tissue overlay. If a slide looks
+# wrong, re-run that one slide without this file and every mask comes back --
+# the run is deterministic, so nothing is unrecoverable.
+
+tiling:
+  # Writes both the tile RGB and its label mask. This is the setting that
+  # accounts for ~99% of the file count.
+  save_tiles: false
+
+qc:
+  # Per-tile QC figures for the sampled tiles only (16 by default), so this is
+  # small either way -- but there is no reason to keep them at cohort scale
+  # when the contact sheet already shows the same tiles in one image.
+  save_per_tile_qc: false
+  # The contact sheet stays on: one image per slide is the cheapest possible
+  # way to notice that a whole slide segmented badly.
+  contact_sheet_tiles: 16

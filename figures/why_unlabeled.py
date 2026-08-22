@@ -17,8 +17,8 @@ from pathlib import Path
 import cv2, numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from steatosis.config import Config
-from steatosis.fat import extract_components, classify
+from mashpath.config import MashConfig as Config
+from mashpath.features.steatosis.detect import extract_components, classify
 
 ROOT = Path(__file__).resolve().parent.parent
 DS = ROOT / "outputs/dataset_v1"

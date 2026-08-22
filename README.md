@@ -53,19 +53,19 @@ dying, so the other 37 are unaffected.
 
 ```bash
 # slide metadata
-.venv/bin/python -m steatosis.cli info --slide data/R25-264_MASH_HE/R25-264-1.svs
+.venv/bin/python -m mashpath.cli info --slide data/R25-264_MASH_HE/R25-264-1.svs
 
 # tissue detection + QC overlay
-.venv/bin/python -m steatosis.cli tissue \
+.venv/bin/python -m mashpath.cli tissue \
     --slide data/R25-264_MASH_HE/R25-264-1.svs --config configs/tuned.yaml
 
 # full pipeline on one slide: tissue -> tiles -> fat -> contact sheet + CSV
-.venv/bin/python -m steatosis.cli run \
+.venv/bin/python -m mashpath.cli steatosis \
     --slide data/R25-264_MASH_HE/R25-264-1.svs \
     --config configs/tuned.yaml --limit 100     # 0/omitted = whole slide
 
 # a whole folder, 5 slides at a time
-.venv/bin/python -m steatosis.cli batch --slide-dir data/R25-264_MASH_HE \
+.venv/bin/python -m mashpath.cli batch --slide-dir data/R25-264_MASH_HE \
     --config configs/tuned.yaml --workers 5 --no-save-tiles
 ```
 
@@ -85,12 +85,12 @@ problems that a random sample answers in seconds.
 
 ```bash
 # per-slide fat estimate from 60 random tiles each, 52 slides in ~16 s
-.venv/bin/python -m steatosis.cli survey \
+.venv/bin/python -m mashpath.cli survey \
     --group MASH=data/R25-264_MASH_HE --group CCl4=data/2026-04-20_CCl4_HE \
     --config configs/tuned.yaml --tiles 60 --workers 8
 
 # score a parameter grid on how well it separates the two cohorts
-.venv/bin/python -m steatosis.cli sweep \
+.venv/bin/python -m mashpath.cli sweep \
     --group MASH=data/R25-264_MASH_HE --group CCl4=data/2026-04-20_CCl4_HE \
     --config configs/tuned.yaml --tiles 60 --workers 8 \
     --white 200,210,220 --circ 0.55,0.60,0.65 --sol 0.85,0.90 \
@@ -110,7 +110,8 @@ Spearman rank correlation of 0.978.
 ## Tuning
 
 Every threshold lives in `configs/*.yaml`; CLI flags override the YAML file,
-which overrides the built-in defaults in `steatosis/config.py`. The resolved
+which overrides the built-in defaults in `mashpath/features/steatosis/config.py`.
+The resolved
 config is written next to the outputs, so any result directory records exactly
 which parameters produced it.
 
@@ -329,8 +330,8 @@ Three properties worth knowing before training on it:
 ```bash
 .venv/bin/python -c "
 import glob
-from steatosis.config import Config
-from steatosis.dataset import build_dataset
+from mashpath.config import MashConfig as Config
+from mashpath.features.steatosis.dataset import build_dataset
 cfg = Config.from_yaml('configs/tuned.yaml')
 build_dataset({'positive': sorted(glob.glob('data/R25-264_MASH_HE/*.svs')),
                'negative': sorted(glob.glob('data/2026-04-20_CCl4_HE/*.svs'))},
@@ -347,19 +348,45 @@ random — so it will be learned, not averaged away.
 ## Layout
 
 ```
-steatosis/
-  config.py   dataclass config tree, YAML load/save, dotted-key overrides
-  slide.py    openslide wrapper; keeps MPP attached, never reads level 0 whole
-  tissue.py   tissue detection -> TissueMask (area in mm², tile-fraction queries)
-  tiles.py    level-0 tiling over tissue, streaming
-  fat.py      droplet detection; area/circularity/solidity/eccentricity filters
-  survey.py   random-tile cohort survey and parameter sweep
-  viz.py      overlay / contact-sheet rendering primitives
-  pipeline.py run_slide() and run_batch()
-  cli.py      argparse entry point
+mashpath/
+  config.py            root config: core sections + one block per feature
+  cli.py               argparse entry point for every feature
+  core/                everything shared, imported by all three features
+    config.py          dataclass config tree, YAML load/save, dotted overrides
+    slide.py           openslide wrapper; keeps MPP attached, never reads L0 whole
+    tissue.py          tissue detection -> TissueMask (mm^2, tile-fraction queries)
+    tiling.py          level-0 tiling over tissue, streaming
+    segmentation.py    the shared StarDist layer: one model load, padded reads,
+                       percentile normalization, upscale
+    viz.py / io.py     rendering primitives; output layout and index writing
+    provenance.py      records versions and parameters next to every result
+  features/
+    steatosis/         fat droplets -- pseudo-labelled, no review needed
+    ballooning/        hepatocyte ballooning -- candidates for review
+    inflammation/      lobular inflammation -- stages 1-2 only, see detect.py
+  review/
+    candidates.py      the feature-agnostic Candidate record
+    manifest.py        THE manifest schema: one writer, one reader
+    verdicts.py        append-only verdict store; inter/intra-rater kappa
+    app.py             the local review web app (stdlib only, localhost)
+    export.py          generic crop + manifest exporter
+    tileset.py         TILE-level labelling sets: frame, stratified draw, package
+    tiles_app.py       the tile labelling app: zoom, context, y/n/unsure
 configs/
-  default.yaml   built-in defaults, documented
-  tuned.yaml     current recommendation, with its derivation
+  core.yaml        shared: slide, tissue, tiling, qc, review
+  steatosis.yaml   } layer one of these over core.yaml
+  ballooning.yaml  }
+  inflammation.yaml}
+  ballooning_tiles.yaml  the tile-labelling draw (not the detector)
+  default.yaml / tuned.yaml   pre-restructure single-file configs, still load
+cluster/           SLURM job scripts and Alliance setup for Fir
+docs/
+  BALLOONING_TILESET.md     design record for the tile-level switch + inventory
+  BALLOONING_TILE_BRIEF.md  the one-page brief the pathologist receives
+tests/
+  test_core.py            unit tests incl. the review contract
+  test_tileset.py         the tile-set draw: caps, split, repeats, leak
+  regression_steatosis.py steatosis must stay byte-identical; golden/ is the baseline
 data/            slides (gitignored)
 outputs/         per-slide results, QC, CSVs (gitignored)
 ```

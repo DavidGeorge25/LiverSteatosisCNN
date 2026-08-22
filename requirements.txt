@@ -1,9 +1,33 @@
 # Requires the native OpenSlide library:  brew install openslide
+#
+# On the Alliance clusters (Fir/Nibi/Rorqual) do NOT install from this file
+# directly -- see requirements-cluster.txt. The TensorFlow wheel on PyPI is not
+# built against the cluster's CUDA and will run StarDist on CPU without saying
+# so.
+
 openslide-python>=1.4
 opencv-python-headless>=4.8
 scikit-image>=0.22
-numpy>=1.24
+scipy>=1.11                 # ndimage/spatial: fat hole-filling, cKDTree neighbourhoods
+numpy>=1.24,<2.6            # 2.6 untested; numba pins hard against numpy ABI
 pandas>=2.0
 matplotlib>=3.8
 PyYAML>=6.0
 tqdm>=4.66
+tifffile>=2023.7            # TIFF fallback reader for formats openslide rejects
+
+# StarDist nucleus/cell segmentation: ballooning and inflammation.
+# Imported lazily, so the CLI, config loading and the steatosis pipeline all
+# work without these -- but any segmentation run dies at first use. Absent from
+# this file until now, which is why a clean install passed `import mashpath.cli`
+# and then failed with ModuleNotFoundError partway through a run.
+stardist>=0.9.0
+csbdeep>=0.8.0
+tensorflow>=2.16,<2.22
+numba>=0.59                 # csbdeep pulls it; pinned here so the numpy cap is visible
+
+# Optional. Without it the tifffile fallback must decode a whole pyramid level
+# to serve a region read, and refuses above slide.max_in_memory_megapixels.
+# Only needed for large TIFFs that openslide cannot open (untiled/odd layouts);
+# tiled pyramidal TIFF goes through openslide and reads lazily without this.
+# zarr>=2.16
