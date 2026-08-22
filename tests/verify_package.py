@@ -50,12 +50,22 @@ def verify(pkg: Path, work: Path) -> None:
     pkg, work = Path(pkg).expanduser(), Path(work).expanduser()
 
     # ---- 1. the files she needs ------------------------------------------
-    for name in ("index.html", "README.txt", "START_MAC.command",
-                 "START_WINDOWS.bat"):
+    web = (pkg / "robots.txt").exists()
+    needed = ["index.html", "README.txt"]
+    needed += ["robots.txt"] if web else ["START_MAC.command", "START_WINDOWS.bat"]
+    for name in needed:
         check(f"present: {name}", (pkg / name).exists())
-    launcher = pkg / "START_MAC.command"
-    check("START_MAC.command is executable",
-          launcher.exists() and os.access(launcher, os.X_OK))
+    if web:
+        check("hosted build carries no launcher to double-click",
+              not (pkg / "START_MAC.command").exists())
+        check("hosted build asks not to be indexed",
+              'content="noindex' in (pkg / "index.html").read_text())
+        check("README does not tell her to double-click anything",
+              "double-click" not in (pkg / "README.txt").read_text().lower())
+    else:
+        launcher = pkg / "START_MAC.command"
+        check("START_MAC.command is executable",
+              launcher.exists() and os.access(launcher, os.X_OK))
 
     html = (pkg / "index.html").read_text()
     key = pd.read_csv(work / "key.csv")
@@ -177,8 +187,9 @@ def verify(pkg: Path, work: Path) -> None:
               (r.stdout + r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr) else "")
 
     # ---- 9. the thing she double-clicks, from a fresh copy ----------------
-    check("START_MAC.command serves the package from a fresh copy",
-          *launcher_works(pkg))
+    if not web:
+        check("START_MAC.command serves the package from a fresh copy",
+              *launcher_works(pkg))
 
 
 def launcher_works(pkg: Path) -> tuple[bool, str]:

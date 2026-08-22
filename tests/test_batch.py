@@ -185,6 +185,63 @@ def test_summary_reports_prevalence_per_fold():
     assert 0.0 <= s.loc["validation", "prevalence"] <= 1.0
 
 
+def test_a_reserved_batch_never_reaches_a_training_fold():
+    """The lab's held-out data, enforced rather than remembered.
+
+    It is the only data where diet and treatment are known, which makes it the
+    only place a specificity claim can be made -- and therefore the most
+    tempting thing to peek at and the least valuable once peeked at.
+    """
+    f = synthetic_frame(n_batches=4)
+    sp = split_by_batch(f, validation=["batch1"], reserved=["batch3"])
+    assert sp.folds["reserved"] == ("batch3",)
+    assert "batch3" not in sp.folds["train"]
+    assert sp.subset(f, "train")["batch"].nunique() == 2
+    assert set(sp.subset(f, "reserved")["batch"]) == {"batch3"}
+
+
+def test_leave_one_batch_out_never_sweeps_over_a_reserved_batch():
+    f = synthetic_frame(n_batches=4)
+    seen = []
+    for held, sp in leave_one_batch_out(f, reserved=["batch3"]):
+        seen.append(held)
+        assert "batch3" not in sp.folds["train"], "reserved leaked into train"
+    assert "batch3" not in seen, "reserved batch was swept as validation"
+    assert sorted(seen) == ["batch0", "batch1", "batch2"]
+
+
+def test_training_on_a_reserved_batch_raises_with_a_reason():
+    from mashpath.train.splits import assert_not_trained_on
+
+    f = synthetic_frame(n_batches=2)
+    fold = pd.Series(["train"] * len(f), index=f.index)
+    try:
+        assert_not_trained_on(f, fold, reserved=["batch0"])
+    except LeakySplitError as exc:
+        assert "batch0" in str(exc) and "reserved" in str(exc)
+    else:
+        raise AssertionError("training on a reserved batch was accepted")
+
+
+def test_the_module_default_is_honoured_without_being_passed():
+    """`reserved=` defaults to RESERVED_BATCHES, so the safe path is the
+    default path and opting out has to be typed."""
+    from mashpath.train import splits as m
+
+    f = synthetic_frame(n_batches=3)
+    saved = m.RESERVED_BATCHES
+    m.RESERVED_BATCHES = ("batch2",)
+    try:
+        sp = m.split_by_batch(f, validation=["batch1"])
+        assert sp.folds["reserved"] == ("batch2",)
+        assert "batch2" not in sp.folds["train"]
+        # ...and opting out is possible, but only explicitly.
+        out = m.split_by_batch(f, validation=["batch1"], reserved=())
+        assert "batch2" in out.folds["train"]
+    finally:
+        m.RESERVED_BATCHES = saved
+
+
 # --------------------------------------------------------------------------
 # the confound, demonstrated
 # --------------------------------------------------------------------------

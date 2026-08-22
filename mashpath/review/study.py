@@ -93,7 +93,8 @@ def _summary(nsec: int, nfield: int, per_section: list[int]) -> tuple[str, float
 
 
 def assemble(package_dir, out_dir, app_html, app_js, round_name,
-             verbose=True, title=None, order_note=None, image_root=None) -> Path:
+             verbose=True, title=None, order_note=None, image_root=None,
+             for_web=False) -> Path:
     """Copy images and write the page. The page carries no slide identity."""
     package_dir, out_dir = Path(package_dir), Path(out_dir)
     image_root = Path(image_root) if image_root else package_dir
@@ -152,6 +153,13 @@ def assemble(package_dir, out_dir, app_html, app_js, round_name,
             "answer, so nothing is lost.';}\n")
     body = (f'\n<script type="application/json" id="data">{blob}</script>\n'
             f'<script>\nconst ROUND="{round_name}";\n{js}\n{warn}\n</script>\n')
+    if for_web:
+        # Hosted: no launcher to run, and the page must not be indexed. HTTPS is
+        # a secure context, so the File System Access API that streams her
+        # answers to a real file works exactly as it does on localhost -- the
+        # hosted copy is if anything the better one for her.
+        shell = shell.replace(
+            "<title>", '<meta name="robots" content="noindex,nofollow">\n<title>', 1)
     cut = shell.index("</style>") + len("</style>")
     (out_dir / "index.html").write_text(
         '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
@@ -162,13 +170,18 @@ def assemble(package_dir, out_dir, app_html, app_js, round_name,
     # The launchers matter more than they look: the File System Access API that
     # streams her answers to a file needs a real origin, and a page opened from
     # disk does not have one. These serve the folder on localhost instead.
-    for extra in ("START_MAC.command", "START_WINDOWS.bat"):
+    launchers = () if for_web else ("START_MAC.command", "START_WINDOWS.bat")
+    for extra in launchers:
         src = APP / extra
         if src.exists():
             shutil.copy2(src, out_dir / extra)
             if extra.endswith(".command"):
                 (out_dir / extra).chmod(0o755)
-    readme = (APP / "README.txt").read_text()
+    if for_web:
+        (out_dir / "robots.txt").write_text(
+            "User-agent: *\nDisallow: /\n")
+    readme = (APP / ("README_WEB.txt" if for_web
+                     else "README.txt")).read_text()
     # Unescape ALL entities, not a hand-kept list of three. `&mdash;` was added
     # to the summary later and went out raw in the plain-text README, which is
     # what a hardcoded list of entities always eventually does.
@@ -227,7 +240,8 @@ def build_study(slide_dirs, out_dir, work_dir="review_sets/ballooning_full",
                 warmup_dir=None, warmup_work_dir="review_sets/ballooning_warmup",
                 warmup_slides: int | None = None,
                 reuse_frame: bool = False, stage: str = "both",
-                fields_per_section: int | None = None) -> Path | None:
+                fields_per_section: int | None = None,
+                for_web: bool = False) -> Path | None:
     """Build the main study and, unless `warmup_dir` is None, the warm-up too.
 
     `stage` exists for the wave fetch, where 65 GB of slides pass through a few
@@ -337,7 +351,7 @@ def build_study(slide_dirs, out_dir, work_dir="review_sets/ballooning_full",
                   append=append, per_slide=per_slide, exclude_slides=held)
     assemble(work_dir, out_dir, app_html, app_js, round_name, verbose,
              title="Ballooning Annotation Study",
-             order_note=SECOND_NOTE if warmup_dir else None)
+             order_note=SECOND_NOTE if warmup_dir else None, for_web=for_web)
 
     if warmup_dir and held:
         if verbose:

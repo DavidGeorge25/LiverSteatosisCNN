@@ -40,6 +40,22 @@ import pandas as pd
 BATCH_COL = "batch"
 SLIDE_COL = "slide"
 
+# Batches the model must never see during training.
+#
+# Dongdong, 2026-08-21: "we do have some test data for which we know the
+# relevant information. We would prefer not to expose this data to the model
+# during the training phase."
+#
+# That set is the only place a specificity claim can be made, because it is the
+# only data where diet and treatment are known -- which makes it exactly the
+# data that is most tempting to peek at, and worth the least once peeked at.
+# Reserving it is therefore enforced rather than remembered: a reserved batch
+# cannot reach a training fold through any function in this module, and
+# `assert_not_trained_on` raises if one ever does.
+#
+# Add batch names here as the lab identifies them.
+RESERVED_BATCHES: tuple[str, ...] = ()
+
 
 class LeakySplitError(RuntimeError):
     """A fold assignment that puts one batch, or one slide, on both sides."""
@@ -102,7 +118,12 @@ class BatchSplit:
                 f"noticing.")
         fold = frame[BATCH_COL].map(self.fold_of)
         assert_no_leakage(frame, fold)
+        assert_not_trained_on(frame, fold, self.reserved)
         return fold
+
+    @property
+    def reserved(self) -> tuple[str, ...]:
+        return self.folds.get("reserved", ())
 
     def subset(self, frame: pd.DataFrame, fold: str) -> pd.DataFrame:
         if fold not in self.folds:
@@ -124,6 +145,28 @@ class BatchSplit:
         if "positives" in out:
             out["prevalence"] = (out["positives"] / out["rows"]).round(4)
         return out
+
+
+def assert_not_trained_on(frame: pd.DataFrame, fold: pd.Series,
+                          reserved: Sequence[str] = ()) -> None:
+    """Raise if a reserved batch reached a training fold.
+
+    Separate from `assert_no_leakage` because it is a different failure: not a
+    split that cannot measure what it claims, but data the lab asked us not to
+    look at. It is checked on every assign() so that the answer does not depend
+    on anyone remembering to ask.
+    """
+    reserved = tuple(reserved) or RESERVED_BATCHES
+    if not reserved:
+        return
+    f = frame.assign(_fold=list(fold))
+    trained = sorted(set(f.loc[f["_fold"] == "train", BATCH_COL]) & set(reserved))
+    if trained:
+        raise LeakySplitError(
+            f"reserved batch(es) {trained} were assigned to train. These are "
+            f"held out at the lab's request and are the only data where diet "
+            f"and treatment are known -- training on them destroys the one "
+            f"external validation this project has.")
 
 
 def assert_no_leakage(frame: pd.DataFrame, fold: pd.Series) -> None:
@@ -149,11 +192,17 @@ def assert_no_leakage(frame: pd.DataFrame, fold: pd.Series) -> None:
 
 
 def split_by_batch(frame: pd.DataFrame, *, validation: Sequence[str],
-                   test: Sequence[str] = ()) -> BatchSplit:
+                   test: Sequence[str] = (),
+                   reserved: Sequence[str] | None = None) -> BatchSplit:
     """Every batch not named goes to train. Naming is the only interface.
 
     Keyword-only on purpose: `split_by_batch(df, ["2025-08-25HE"])` should not
     be a thing that runs and quietly means something.
+
+    `reserved` defaults to RESERVED_BATCHES and is subtracted from train before
+    anything else happens, so the default behaviour of this function is already
+    the safe one. Passing `reserved=()` explicitly is the only way to train on
+    them, which is the point: it has to be a decision someone typed.
     """
     _require_columns(frame, BATCH_COL)
     present = list(dict.fromkeys(frame[BATCH_COL]))
@@ -170,17 +219,24 @@ def split_by_batch(frame: pd.DataFrame, *, validation: Sequence[str],
             raise KeyError(f"{name} names {missing}, which are not in the frame")
     if not val:
         raise ValueError("validation must name at least one batch")
-    train = tuple(b for b in present if b not in set(val) | set(tst))
+    res = tuple(RESERVED_BATCHES if reserved is None else reserved)
+    res = tuple(b for b in res if b in present)
+    named = set(val) | set(tst) | set(res)
+    train = tuple(b for b in present if b not in named)
     if not train:
-        raise ValueError("every batch was assigned to validation/test; "
+        raise ValueError("every batch was assigned to validation/test/reserved; "
                          "nothing left to train on")
     folds = {"train": train, "validation": val}
     if tst:
         folds["test"] = tst
+    if res:
+        folds["reserved"] = res
     return BatchSplit(folds)
 
 
-def leave_one_batch_out(frame: pd.DataFrame) -> Iterator[tuple[str, BatchSplit]]:
+def leave_one_batch_out(frame: pd.DataFrame,
+                        reserved: Sequence[str] | None = None
+                        ) -> Iterator[tuple[str, BatchSplit]]:
     """One split per batch, each holding that batch out entirely.
 
     This is the evaluation that matches the claim people want to make about
@@ -189,8 +245,13 @@ def leave_one_batch_out(frame: pd.DataFrame) -> Iterator[tuple[str, BatchSplit]]
     """
     _require_columns(frame, BATCH_COL)
     present = list(dict.fromkeys(frame[BATCH_COL]))
-    if len(present) < 2:
-        raise ValueError(f"leave-one-batch-out needs at least 2 batches, "
-                         f"got {present}")
-    for b in present:
-        yield b, split_by_batch(frame, validation=[b])
+    res = set(RESERVED_BATCHES if reserved is None else reserved) & set(present)
+    # A reserved batch is neither trained on nor swept over: it is not a fold of
+    # a development loop, it is the thing the development loop is measured
+    # against once, at the end.
+    sweep = [b for b in present if b not in res]
+    if len(sweep) < 2:
+        raise ValueError(f"leave-one-batch-out needs at least 2 non-reserved "
+                         f"batches, got {sweep}")
+    for b in sweep:
+        yield b, split_by_batch(frame, validation=[b], reserved=sorted(res))

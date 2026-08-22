@@ -255,6 +255,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="also build the short warm-up package here")
     p_study.add_argument("--warmup-slides", type=int, default=3,
                          help="slides held out of the main study for the warm-up")
+    p_study.add_argument("--web", action="store_true",
+                         help="build for hosting: no launchers, noindex, and a "
+                              "README that does not tell her to double-click "
+                              "something that is not there")
     p_study.add_argument("--reuse-frame", action="store_true",
                          help="reuse review_sets/study_frame.csv instead of "
                               "re-deriving tissue for every slide")
@@ -747,7 +751,8 @@ def main(argv: list[str] | None = None) -> int:
                     warmup_dir=args.warmup_out,
                     warmup_slides=args.warmup_slides,
                     reuse_frame=args.reuse_frame, stage=args.stage,
-                    fields_per_section=args.fields_per_section)
+                    fields_per_section=args.fields_per_section,
+                    for_web=args.web)
         return 0
 
     if args.command == "bundle":
