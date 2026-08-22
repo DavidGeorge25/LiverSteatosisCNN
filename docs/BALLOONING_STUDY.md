@@ -242,3 +242,50 @@ Read these off the warm-up before anything else:
    wrong for the task and should become a count or a paint stroke.
 4. **Her answer to "is this the right question?"** The candidate round failed on
    exactly that and only found out at the end.
+
+---
+
+## 7. The return path
+
+When her file arrives:
+
+```bash
+.venv/bin/python -m mashpath.review.merge_study \
+    review_sets/ballooning_full/key.csv ballooning_EK.csv outputs/labels
+```
+
+Writes three tables, all carrying slide / cohort / batch / diet / split /
+sample_type so nothing downstream has to re-join:
+
+| file | one row per |
+| --- | --- |
+| `fields.csv` | field judged: verdict, cell count, seconds |
+| `cells.csv` | circled cell, in **level-0 slide coordinates** with a diameter in µm and the pixel radius a mask would use |
+| `grades.csv` | section: the NASH-CRN grade, the validation target |
+
+It prints prevalence **on the uniform rows only** -- a repeat is a second look
+at a field already counted, so including repeats would double-count every
+repeated positive -- and the intra-rater kappa from `intra_rater()`.
+
+**Repeats are paired on (slide, x, y), not on field_id.** A repeat is issued
+under its own id precisely so she cannot tell it is one; the ids do not point at
+each other and were never meant to. Kappa rather than raw agreement, because
+with most fields negative, agreeing by chance runs high and a raw 90% would read
+as excellent while meaning very little.
+
+Tested end to end by `tests/test_ingest.py`, which synthesises a session file in
+`study.js`'s own hand-rolled CSV format -- commas joined by hand, only some
+fields quoted -- against the real 146-section key, including a partly-finished
+run. A test that wrote a tidier file than the app does would pass while the real
+file failed.
+
+Checked there: every circle lands inside the field it was drawn on and on the
+right slide, radii come back in a plausible pixel range, a 40%-complete session
+merges what exists and still spans all nine batches, and kappa brackets
+correctly at 1.0 for identical answers and below zero for systematic
+disagreement.
+
+One guard worth knowing about: `merge` refuses to run if `key.csv` holds a field
+size other than 512 px. `study.js` computes every circle diameter against a
+hardcoded 253.6 µm field, so a different size would silently rescale every
+diameter and radius in `cells.csv` with nothing downstream looking wrong.
