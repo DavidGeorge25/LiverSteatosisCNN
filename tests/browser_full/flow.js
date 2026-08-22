@@ -82,9 +82,25 @@ console.log('12. A repeated field is judged twice but shown once in the montage'
 S.si=2; S.fi=0;
 ok(cur().fields.length===5,'section 2 presents 5 fields including the repeat');
 ok(uniqueFields(cur()).length===4,'the montage deduplicates by image');
-openGrade();
+
+// Work the section for real so the montage has something of hers to show.
+circles=[{nx:0.3,ny:0.3,d:44},{nx:0.6,ny:0.7,d:38}]; judge('y');   // f0: 2 cells
+circles=[]; judge('n');                                            // f1: none
+circles=[{nx:0.5,ny:0.2,d:50}]; judge('y');                        // f2: 1 cell
+circles=[]; judge('u');                                            // f3: unsure
+circles=[]; judge('n');                                            // f4: the repeat
+
+console.log('12b. The grade screen shows the cells she just circled');
+ok(el('grade').style.display==='grid','grade opened after the last field');
 ok((el('gg').innerHTML.match(/<img /g)||[]).length===4,'4 thumbnails, not 5');
 ok(String(el('gN').textContent)==='4','the count she is told matches what she sees');
+const marks=(el('gg').innerHTML.match(/<i style=/g)||[]).length;
+ok(marks===3,`her 3 circles are drawn on the montage (got ${marks})`);
+ok(/left:30\.00%/.test(el('gg').innerHTML),'a mark is placed by percentage, not pixels');
+ok(/<b>2<\/b>/.test(el('gg').innerHTML) && /<b>1<\/b>/.test(el('gg').innerHTML),
+   'each thumbnail carries its own cell count');
+ok(/<u>unsure<\/u>/.test(el('gg').innerHTML),
+   'an unsure field is flagged -- unreadable is not the same as empty');
 el('grade').style.display='none';
 
 console.log('13. Saving a copy mid-session leaves a way back');

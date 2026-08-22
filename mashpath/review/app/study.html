@@ -109,6 +109,22 @@ footer{border-top:1px solid var(--line);background:var(--panel);position:sticky;
 #gg{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px;margin:14px 0}
 #gg img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;display:block;
  border:1px solid var(--line);cursor:zoom-in}
+/* The grade is a judgement about how much ballooning is in the section, and she
+   has just spent the section deciding exactly that, cell by cell. Showing the
+   thumbnails without her own marks throws that work away and asks her to
+   remember it instead. Marks are positioned in PERCENTAGES so they hold at any
+   thumbnail size and in the lightbox without recomputing anything. */
+.gt{position:relative;cursor:zoom-in}
+.gt i,#lbmarks i{position:absolute;border-radius:50%;border:2px solid #00E5D4;
+ box-shadow:0 0 0 1.5px rgba(255,255,255,.95),0 0 0 2.5px rgba(0,0,0,.45);
+ transform:translate(-50%,-50%);pointer-events:none;box-sizing:border-box}
+.gt b{position:absolute;right:5px;bottom:5px;min-width:17px;height:17px;padding:0 4px;
+ border-radius:9px;display:grid;place-items:center;font-size:10.5px;font-weight:600;
+ background:#0E7C86;color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+ box-shadow:0 0 0 1.5px rgba(255,255,255,.9),0 1px 3px rgba(0,0,0,.5);pointer-events:none}
+.gt u{position:absolute;left:5px;bottom:5px;padding:1px 6px;border-radius:9px;
+ font-style:normal;text-decoration:none;font-size:10.5px;font-weight:600;
+ background:rgba(10,12,16,.72);color:#fff;pointer-events:none}
 .grow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .g{flex:1;min-width:120px;border-radius:10px;padding:12px 10px;font-weight:600;
  border:1.5px solid var(--line);background:var(--panel);display:flex;align-items:center;
@@ -119,7 +135,9 @@ textarea,#noteBox{width:100%;background:var(--ground);border:1px solid var(--lin
  border-radius:8px;padding:10px;font:inherit;color:var(--ink);font-size:14px;margin-top:10px}
 #lightbox{display:none;position:fixed;inset:0;z-index:40;background:rgba(10,12,16,.88);
  place-items:center;padding:24px;cursor:zoom-out}
+#lbwrap{position:relative;display:inline-block;line-height:0}
 #lightbox img{max-width:min(92vw,900px);max-height:90vh;border-radius:10px}
+#lbmarks{position:absolute;inset:0}
 .stat{display:flex;gap:20px;margin:18px 0;flex-wrap:wrap}
 .stat div{background:var(--sunk);border-radius:9px;padding:11px 15px;min-width:84px}
 .stat span{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:21px;font-weight:500}
@@ -202,7 +220,8 @@ textarea,#noteBox{width:100%;background:var(--ground);border:1px solid var(--lin
 <div id="grade"><div id="gcard">
   <h2 style="font-size:20px">Grade this section</h2>
   <p class="lede" style="font-size:14px;margin:4px 0 0">All <span id="gN">21</span> fields
-    you have just reviewed, from this section. Click any to enlarge.</p>
+    you have just reviewed, from this section, with the cells you circled.
+    Click any to enlarge.</p>
   <div id="gg"></div>
   <p style="font-size:13.5px;color:var(--muted);margin:0 0 8px">
     NASH-CRN ballooning grade for this section:</p>
@@ -226,7 +245,7 @@ textarea,#noteBox{width:100%;background:var(--ground);border:1px solid var(--lin
   <div class="namerow" style="margin-top:12px"><button class="btn" id="ckGo">Carry on</button></div>
 </div></div>
 
-<div id="lightbox"><img id="lbimg" alt="Enlarged field"></div>
+<div id="lightbox"><div id="lbwrap"><img id="lbimg" alt="Enlarged field"><div id="lbmarks"></div></div></div>
 <div id="flash"></div>
 
 <div id="done"><div class="card">

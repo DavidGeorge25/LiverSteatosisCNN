@@ -301,13 +301,34 @@ function uniqueFields(sec){
   const seen=new Set();
   return sec.fields.filter(f => !seen.has(f.i) && seen.add(f.i));
 }
+// Her circles, as percentages of the field, so one string of markup works at
+// thumbnail size and at lightbox size without recomputing anything.
+function markHTML(cells){
+  return (cells||[]).map(c=>{
+    const w=c[2]/TILE_UM*100;
+    return `<i style="left:${(c[0]*100).toFixed(2)}%;top:${(c[1]*100).toFixed(2)}%;`
+         + `width:${w.toFixed(2)}%;height:${w.toFixed(2)}%"></i>`;
+  }).join('');
+}
 function openGrade(){
   const sec=cur(), shown=uniqueFields(sec);
   $('#gN').textContent=shown.length;
-  $('#gg').innerHTML=shown.map((f,j)=>
-    `<img src="${f.i}" alt="Field ${j+1}" loading="lazy">`).join('');
-  $('#gg').querySelectorAll('img').forEach(im=>{
-    im.onclick=()=>{ $('#lbimg').src=im.src; $('#lightbox').style.display='grid'; };
+  $('#gg').innerHTML=shown.map((f,j)=>{
+    const a=S.fields[f.id]||{}, n=(a.c||[]).length;
+    // "unsure" is worth seeing at grading time: a section she could not read is
+    // a different thing from a section with nothing in it.
+    const tag = a.v==='u' ? '<u>unsure</u>' : '';
+    return `<div class="gt" data-f="${f.id}" data-src="${f.i}">`
+         + `<img src="${f.i}" alt="Field ${j+1}" loading="lazy">`
+         + markHTML(a.c) + (n?`<b>${n}</b>`:'') + tag + `</div>`;
+  }).join('');
+  $('#gg').querySelectorAll('.gt').forEach(el=>{
+    el.onclick=()=>{
+      const a=S.fields[el.dataset.f]||{};
+      $('#lbimg').src=el.dataset.src;
+      $('#lbmarks').innerHTML=markHTML(a.c);
+      $('#lightbox').style.display='grid';
+    };
   });
   $('#noteBox').value=(S.grades[sec.id]&&S.grades[sec.id].note)||'';
   $('#grade').style.display='grid';
