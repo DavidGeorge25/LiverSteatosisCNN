@@ -28,3 +28,6 @@ review_sets/**/tiles/
 # and it costs about 6 MB instead of 30. It is kept rather than regenerated
 # because regenerating it means re-fetching 52 GB from the cluster.
 review_sets/study_frame.csv
+
+# wrangler deploy cache
+.wrangler/
