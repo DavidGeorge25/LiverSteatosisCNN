@@ -36,8 +36,8 @@ sys.path.insert(0, str(ROOT))
 
 import pandas as pd  # noqa: E402
 
-from mashpath.train.unet import (UNetConfig, build_unet, dice,  # noqa: E402
-                                 make_dataset, make_loss, predict_frame,
+from mashpath.train.unet import (UNetConfig, _dev_split, build_unet,  # noqa: E402
+                                 dice, make_dataset, make_loss, predict_frame,
                                  soft_dice_loss, weighted_bce)
 
 SIZE = 32
@@ -167,7 +167,13 @@ def test_cross_entropy_is_happy_with_an_empty_prediction_and_dice_is_not():
     bce = float(weighted_bce(yt, pt))
     dl = float(soft_dice_loss(yt, pt))
     assert bce < 0.6, f"cross-entropy should find the empty mask cheap, got {bce:.3f}"
-    assert dl > 0.99, f"Dice should reject the empty mask, got {dl:.3f}"
+    # Not 1.0: the smoothing constant of 1.0 (see `soft_dice_loss`) softens the
+    # empty case in proportion to how much label there is -- here 16 positive
+    # pixels, giving 1 - 1/17. The property under test is that Dice is large
+    # where cross-entropy is small, and it is: 0.94 against 0.58.
+    assert dl > 0.9, f"Dice should reject the empty mask, got {dl:.3f}"
+    assert dl > bce + 0.3, \
+        f"Dice {dl:.3f} is not clearly rejecting where BCE {bce:.3f} accepts"
 
     combined = float(make_loss(UNetConfig(dice_weight=1.0))(yt, pt))
     plain = float(make_loss(UNetConfig(dice_weight=0.0))(yt, pt))
@@ -183,6 +189,63 @@ def test_a_perfect_prediction_costs_almost_nothing():
     loss = float(make_loss(UNetConfig())(K.convert_to_tensor(y),
                                          K.convert_to_tensor(good)))
     assert loss < 0.02, f"a near-perfect prediction should be cheap, got {loss:.4f}"
+
+
+def _train_frame() -> pd.DataFrame:
+    rows = []
+    for b, n_slides in (("B1", 10), ("B2", 8), ("B3", 6)):
+        for i in range(n_slides):
+            neg = i < 3
+            for t in range(4):
+                rows.append({"slide": f"{b}_s{i}", "batch": b, "id": f"{b}_s{i}_{t}",
+                             "is_negative": neg})
+    return pd.DataFrame(rows)
+
+
+def test_the_dev_split_never_puts_a_slide_on_both_sides():
+    fit, dev = _dev_split(_train_frame(), 0.2, 0)
+    overlap = set(fit["slide"]) & set(dev["slide"])
+    assert not overlap, f"slides on both sides: {sorted(overlap)}"
+    assert len(fit) + len(dev) == len(_train_frame())
+
+
+def test_the_dev_split_covers_every_training_batch_and_both_classes():
+    """A dev set missing a staining run selects the checkpoint on a narrower
+    distribution than the model is training on; one missing the negatives
+    selects it on data where predicting fat everywhere is never punished."""
+    _, dev = _dev_split(_train_frame(), 0.2, 0)
+    assert set(dev["batch"]) == {"B1", "B2", "B3"}, sorted(set(dev["batch"]))
+    per_slide = dev.groupby("slide")["is_negative"].first()
+    assert per_slide.any() and (~per_slide).any(), \
+        f"dev is single-class: {per_slide.value_counts().to_dict()}"
+
+
+def test_the_dev_split_never_consumes_a_whole_stratum():
+    """With one slide in a stratum, taking `fraction` of it must still leave
+    something to fit on rather than moving the only slide to dev."""
+    tiny = pd.DataFrame([{"slide": "only", "batch": "B9", "id": "x",
+                          "is_negative": False}])
+    fit, dev = _dev_split(pd.concat([_train_frame(), tiny], ignore_index=True),
+                          0.5, 0)
+    assert "only" in set(fit["slide"]), "the lone slide of a stratum went to dev"
+
+
+def test_an_empty_label_has_no_cliff_to_fall_off():
+    """With a 1e-6 epsilon the empty-label Dice keeps falling as outputs are
+    driven toward 1e-12, so the model is rewarded for numerical extremity
+    rather than segmentation -- measured at val_loss 0.0013 on a held-out
+    batch that is 67% empty labels. Smoothing of 1.0 makes it degrade
+    smoothly instead."""
+    import keras.ops as K
+    sh = (1, 32, 32, 1)
+    y = K.convert_to_tensor(np.zeros(sh, np.float32))
+    w = K.convert_to_tensor(np.ones(sh, np.float32))
+    losses = [float(soft_dice_loss(y, K.convert_to_tensor(np.full(sh, v, np.float32)), w))
+              for v in (1e-9, 1e-4, 1e-2, 1e-1)]
+    assert losses == sorted(losses), f"not monotone in the prediction mass: {losses}"
+    # The step from "essentially zero" to "a little" must be small, not a cliff.
+    assert losses[1] - losses[0] < 0.2, f"cliff between 1e-9 and 1e-4: {losses}"
+
 
 
 def main() -> int:

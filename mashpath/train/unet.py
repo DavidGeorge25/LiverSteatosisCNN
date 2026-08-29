@@ -68,6 +68,9 @@ class UNetConfig:
     # lets the weight do the work; raising it is a harder, more explicit claim
     # about which pseudo-label pixels are worth learning.
     confidence_floor: float = 0.0
+    # Slides held out of the fit, from the TRAINING batches, for early stopping
+    # and checkpoint selection. See `_dev_split`.
+    dev_fraction: float = 0.12
     # Weight on the soft-Dice term. 0 is plain weighted cross-entropy, which on
     # this class balance collapses to an empty mask -- see `soft_dice_loss`.
     dice_weight: float = 1.0
@@ -159,11 +162,19 @@ def soft_dice_loss(y_true, y_pred, sample_weight=None):
     convention, and 67% of the negative tiles carry an empty mask.
     """
     import keras.ops as K
-    eps = 1e-6
+    # Smoothing of 1.0, not 1e-6. With a tiny epsilon the empty-label case has a
+    # cliff: when the label is empty the loss is 1 - eps/(sum(p)+eps), which
+    # keeps falling as the outputs are driven toward 1e-12, so the model is
+    # rewarded for numerical extremity rather than for segmentation. Measured on
+    # the CCl4 fold, where 67% of tiles carry an empty label: validation loss
+    # reached 0.0013 after one epoch, which is that cliff and not a good model.
+    # At 1.0 the empty case degrades smoothly to roughly sum(p) and there is
+    # nothing to win past predicting nothing.
+    smooth = 1.0
     w = K.ones_like(y_true) if sample_weight is None else sample_weight
     num = 2.0 * K.sum(w * y_true * y_pred)
     den = K.sum(w * y_true) + K.sum(w * y_pred)
-    return 1.0 - (num + eps) / (den + eps)
+    return 1.0 - (num + smooth) / (den + smooth)
 
 
 def make_loss(cfg: "UNetConfig"):
@@ -414,6 +425,43 @@ def floor_test(pred: pd.DataFrame, negative_batch: str = "2026-04-20_CCl4_HE") -
             "teacher_worst": float(neg["teacher_fat"].max())}
 
 
+def _dev_split(train: pd.DataFrame, fraction: float, seed: int
+               ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Whole slides from the TRAINING batches, for checkpoint selection.
+
+    Early stopping and "save the best epoch" are model selection, and doing
+    them on the held-out batch means the held-out batch is not held out --
+    the fold's headline number would then be reported on data that chose the
+    weights. `BATCH_EFFECTS.md` spends its length on making the wrong split
+    unreachable; leaving this one in place would undo that at the last step.
+
+    It is also degenerate on some folds. On the CCl4 fold 67% of held-out tiles
+    carry an empty label, so a loss computed there is minimised by predicting
+    nothing at all, and the checkpoint chosen would be the emptiest epoch.
+
+    By slide, never by tile -- adjacent tiles share staining and often the same
+    hepatocytes across their border. Stratified by (batch, is_negative) so the
+    dev set cannot come back all-positive or missing a staining run, and every
+    stratum yields at least one slide.
+    """
+    rng = np.random.default_rng(seed)
+    keys = ["batch"] + (["is_negative"] if "is_negative" in train.columns else [])
+    dev_slides: list[str] = []
+    for _, grp in train.groupby(keys, dropna=False):
+        slides = sorted(grp["slide"].unique())
+        n = max(1, int(round(len(slides) * fraction)))
+        n = min(n, len(slides) - 1) if len(slides) > 1 else 0
+        if n:
+            dev_slides += list(rng.choice(slides, n, replace=False))
+    dev_set = set(dev_slides)
+    dev = train[train["slide"].isin(dev_set)]
+    fit = train[~train["slide"].isin(dev_set)]
+    if dev.empty or fit.empty:
+        raise ValueError(f"dev_fraction {fraction} left {len(fit)} fit rows and "
+                         f"{len(dev)} dev rows")
+    return fit, dev
+
+
 # ---- one fold -------------------------------------------------------------
 
 def train_fold(manifest: pd.DataFrame, root: str | Path, held_out: str,
@@ -437,13 +485,20 @@ def train_fold(manifest: pd.DataFrame, root: str | Path, held_out: str,
         raise ValueError(f"fold {held_out!r} has an empty side: "
                          f"{len(tr)} train, {len(va)} validation rows")
 
+    fit_df, dev_df = _dev_split(tr, cfg.dev_fraction, cfg.seed)
+    print(f"fit {len(fit_df)} rows / {fit_df.slide.nunique()} slides   "
+          f"dev {len(dev_df)} rows / {dev_df.slide.nunique()} slides   "
+          f"held-out {len(va)} rows / {va.slide.nunique()} slides", flush=True)
+
     keras.utils.set_random_seed(cfg.seed)
     model = build_unet(cfg)
     model.compile(optimizer=keras.optimizers.Adam(cfg.learning_rate),
                   loss=make_loss(cfg))
     hist = model.fit(
-        make_dataset(tr, root, cfg, training=True),
-        validation_data=make_dataset(va, root, cfg, training=False,
+        make_dataset(fit_df, root, cfg, training=True),
+        # Dev, NOT the held-out batch: see `_dev_split`. The held-out batch is
+        # scored once, after training, and never chooses a weight.
+        validation_data=make_dataset(dev_df, root, cfg, training=False,
                                      batch_size=max(cfg.batch_size // 2, 1)),
         epochs=cfg.epochs, verbose=verbose,
         callbacks=[
@@ -461,7 +516,9 @@ def train_fold(manifest: pd.DataFrame, root: str | Path, held_out: str,
     (out_dir / "config.json").write_text(json.dumps(
         {**cfg.to_dict(), "held_out_batch": held_out,
          "train_batches": sorted(split.folds["train"]),
-         "train_rows": len(tr), "validation_rows": len(va)}, indent=2))
+         "fit_rows": len(fit_df), "fit_slides": int(fit_df.slide.nunique()),
+         "dev_rows": len(dev_df), "dev_slides": sorted(dev_df.slide.unique()),
+         "held_out_rows": len(va)}, indent=2))
     return model, hist
 
 
