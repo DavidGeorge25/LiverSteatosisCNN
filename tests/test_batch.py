@@ -27,6 +27,9 @@ sys.path.insert(0, str(ROOT))
 from mashpath.config import MashConfig  # noqa: E402
 from mashpath.train import (augmenter_from_config, normalizer_from_config)  # noqa: E402
 from mashpath.train.augment import ColourJitter, StainJitter, default_pipeline  # noqa: E402
+from mashpath.train.audit import (pairwise_group_auc, rank_of_pair,  # noqa: E402
+                                  slide_summary, variance_components,
+                                  within_group_contrast)
 from mashpath.train.evaluate import (auc, batch_separability, binary_metrics,  # noqa: E402
                                      held_out_batch_eval, per_batch_metrics,
                                      report)
@@ -460,6 +463,98 @@ def test_an_unknown_augment_strength_raises():
         assert "unknown strength" in str(exc)
     else:
         raise AssertionError("an unknown strength was accepted")
+
+
+# ---- audit.py: is a score reading biology or reading the staining run? ----
+
+def test_variance_components_brackets_at_all_between_and_all_within():
+    allb = variance_components([1, 1, 5, 5], ["a", "a", "b", "b"])
+    assert allb["between_fraction"] == 1.0, allb
+    allw = variance_components([1, 5, 1, 5], ["a", "a", "b", "b"])
+    assert allw["between_fraction"] == 0.0, allw
+    assert allw["between"] == 0.0 and allw["within"] > 0
+
+
+def test_variance_components_ignores_the_tiles_with_no_score():
+    """A slide the detector proposed nothing on carries NaN, not zero. Counting
+    it as zero would pull every batch containing one toward the same value and
+    make the batches look more alike than they are."""
+    with_nan = variance_components([1, 1, np.nan, 5, 5, np.nan],
+                                   ["a", "a", "a", "b", "b", "b"])
+    without = variance_components([1, 1, 5, 5], ["a", "a", "b", "b"])
+    assert with_nan["between_fraction"] == without["between_fraction"]
+    assert with_nan["n"] == 4
+
+
+def test_pairwise_group_auc_drops_a_group_too_small_to_mean_anything():
+    """With one slide a side, a perfect AUC costs nothing and would top the
+    table while meaning nothing at all."""
+    v = [1, 1.1, 1.2, 5, 5.1, 5.2, 9]
+    g = ["a"] * 3 + ["b"] * 3 + ["c"]
+    pairs = pairwise_group_auc(v, g, min_size=2)
+    assert set(pairs["a"]) | set(pairs["b"]) == {"a", "b"}, \
+        f"a one-slide group reached the table: {pairs}"
+    assert len(pairs) == 1
+
+
+def test_pairwise_separation_is_a_distance_not_a_direction():
+    """Which group is called `a` is alphabetical accident; the ranking must not
+    depend on it."""
+    up = pairwise_group_auc([1, 2, 8, 9], ["a", "a", "b", "b"])
+    down = pairwise_group_auc([8, 9, 1, 2], ["a", "a", "b", "b"])
+    assert up["auc"].iloc[0] != down["auc"].iloc[0]
+    assert up["separation"].iloc[0] == down["separation"].iloc[0] == 0.5
+
+
+def test_rank_of_pair_finds_the_pair_whichever_way_round_it_is_named():
+    pairs = pairwise_group_auc([1, 1.1, 5, 5.1, 1.05, 1.15],
+                               ["a", "a", "b", "b", "c", "c"])
+    assert rank_of_pair(pairs, "a", "b") == rank_of_pair(pairs, "b", "a")
+    try:
+        rank_of_pair(pairs, "a", "zz")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("a pair that is not in the table was located")
+
+
+def test_a_within_batch_contrast_cannot_be_moved_by_another_batch():
+    """The whole value of the within-batch contrast is that stain is held fixed.
+    If rows from a second batch could reach it, it would be measuring exactly
+    what it exists to exclude."""
+    rows = []
+    for slide, batch, diet, score in [
+            ("s1", "B1", "chow", 2.0), ("s2", "B1", "chow", 2.1),
+            ("s3", "B1", "nash", 2.05), ("s4", "B1", "nash", 1.95)]:
+        rows += [{"slide": slide, "batch": batch, "diet": diet, "score": score}]
+    clean = pd.DataFrame(rows)
+    contaminated = pd.concat([clean, pd.DataFrame([
+        {"slide": "x1", "batch": "B2", "diet": "nash", "score": 99.0},
+        {"slide": "x2", "batch": "B2", "diet": "chow", "score": -99.0}])],
+        ignore_index=True)
+    a = within_group_contrast(clean, "B1", "diet", "nash", "chow")
+    b = within_group_contrast(contaminated, "B1", "diet", "nash", "chow")
+    assert a["tile_auc"] == b["tile_auc"], \
+        f"another batch changed the within-batch answer: {a} vs {b}"
+    assert a["n_positive_tiles"] == 2
+
+
+def test_a_within_batch_contrast_with_one_side_missing_is_nan_not_a_coin_flip():
+    frame = pd.DataFrame([{"slide": "s1", "batch": "B1", "diet": "chow", "score": 2.0},
+                          {"slide": "s2", "batch": "B1", "diet": "chow", "score": 3.0}])
+    w = within_group_contrast(frame, "B1", "diet", "nash", "chow")
+    assert np.isnan(w["tile_auc"]), w
+    assert w["n_positive_tiles"] == 0
+
+
+def test_slide_summary_takes_the_median_of_the_finite_scores():
+    frame = pd.DataFrame({
+        "slide": ["s1"] * 4, "batch": ["B1"] * 4, "cohort": ["X"] * 4,
+        "diet": ["chow"] * 4, "score": [1.0, 2.0, 100.0, np.nan]})
+    out = slide_summary(frame)
+    assert len(out) == 1
+    assert out["score"].iloc[0] == 2.0, f"not the median of the finite scores: {out}"
+    assert out["tiles"].iloc[0] == 3, "a NaN tile was counted"
 
 
 def main() -> int:

@@ -299,6 +299,15 @@ excluded as void.
    another. Some of the AUC could be stain rather than biology. It cannot be
    separated with the slides on this laptop — which is a further argument for
    fetching the other seven batches (§6).
+
+   **Answered 2026-08-29, once those batches were here:
+   [BALLOONING_SCORE_BATCH.md](BALLOONING_SCORE_BATCH.md).** Short version: not
+   stain, but not biology either — a gap this size between two staining runs is
+   ordinary in this collection (rank 8 of 28 pairs), the one within-batch diet
+   contrast reads a coin, and what does track the score, within one batch, is
+   how much fat the slide has. Also: the numbers in the table above are computed
+   from a score column that mixes two ranking configs, and three of the five
+   cohorts shift when that is fixed. The re-derived table is the one to use.
 2. **Slide-level medians are not tile-level labels.** A cohort can score low on
    average and still contain the tiles we want. This is evidence about
    *enrichment quality*, not proof that MASH lacks ballooning.
