@@ -1,0 +1,24 @@
+# Splitting touching droplets. Layer LAST, over a complete config:
+#
+#   --config configs/tuned.yaml --config configs/watershed.yaml
+#
+# An overlay rather than a change to tuned.yaml, so that every A/B is a matter
+# of adding or removing one file on the command line and the baseline cannot
+# drift underneath the comparison.
+#
+# WHAT IT DOES. In dense regions adjacent droplets threshold into one white
+# component. Since `max_eccentricity` arrived that no longer merely inflates
+# droplet size -- a fused pair is elongated, so it is rejected outright and its
+# area is lost. Distance-transform watershed with h-maxima seeding puts it back.
+#
+# WHAT TO WATCH. Not the fat fraction. Over-splitting one ragged droplet into
+# three raises the count, lowers the mean droplet size, and leaves the fraction
+# almost unchanged -- so the headline number cannot detect the failure. Judge it
+# on the CCl4 false-positive floor (must not rise) and the R22-354 chow/NASH
+# separation (must not fall), with droplet count and mean size as the
+# diagnostics.
+
+fat:
+  watershed: true
+  watershed_min_depth_um: 1.5
+  watershed_min_area_um2: 0.0   # 0 -> 2x min_area_um2

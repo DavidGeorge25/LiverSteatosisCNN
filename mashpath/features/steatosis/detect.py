@@ -15,10 +15,11 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
-from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_fill_holes, distance_transform_edt
 from skimage.filters import threshold_otsu
 from skimage.measure import label, regionprops
-from skimage.morphology import disk
+from skimage.morphology import disk, h_maxima
+from skimage.segmentation import watershed
 
 from .config import FatConfig
 
@@ -130,6 +131,85 @@ def _white_mask(rgb: np.ndarray, cfg: FatConfig) -> tuple[np.ndarray, float]:
     return gray >= thresh, thresh
 
 
+def split_touching(white: np.ndarray, cfg: FatConfig,
+                   um2_per_px: float) -> tuple[np.ndarray, int]:
+    """Label `white`, splitting components that are two or more droplets fused.
+
+    Returns (labels, n_split). `n_split` counts components that came apart, so
+    a run can report how often this fired instead of leaving it to be inferred
+    from a shifted mean.
+
+    The method is the standard distance-transform watershed, with two guards
+    that do the actual work:
+
+    **Depth, not distance, chooses the seeds.** `h_maxima` keeps a maximum only
+    if it stands `h` above the saddle connecting it to any taller one. A single
+    droplet with a scalloped border produces a ridge of shallow maxima and
+    collapses to one seed; two fused droplets produce two peaks separated by a
+    genuine notch at their waist. Using `peak_local_max` with a minimum
+    separation instead would key on how far apart the bumps are, which for a
+    large droplet is exactly the wrong question -- the bigger the droplet, the
+    more its boundary noise looks like a second droplet.
+
+    **Small components are not offered to it at all.** A component the size of
+    one droplet cannot be two, and letting the watershed try can only damage a
+    class that is already right.
+
+    No `watershed_line`, so every pixel of the input keeps a label and the
+    total fat area is unchanged by splitting -- only its partition into
+    droplets moves. That matters because area is the reported quantity and
+    droplet count is the diagnostic; if splitting could quietly delete boundary
+    pixels the two would drift apart and the fat fraction would look like it
+    had responded to something biological.
+    """
+    base = label(white)
+    if base.max() == 0:
+        return base, 0
+
+    px_per_um = 1.0 / np.sqrt(um2_per_px)
+    depth_px = max(cfg.watershed_min_depth_um * px_per_um, 1e-6)
+    floor_um2 = cfg.watershed_min_area_um2 or (2.0 * cfg.min_area_um2)
+    floor_px = floor_um2 / um2_per_px
+
+    # Only the components big enough to be a merge go to the watershed; the
+    # rest are copied through untouched.
+    big = np.zeros_like(white, dtype=bool)
+    for r in regionprops(base):
+        if r.area >= floor_px:
+            big[base == r.label] = True
+    if not big.any():
+        return base, 0
+
+    dist = distance_transform_edt(big).astype(np.float32)
+    seeds = label(h_maxima(dist, depth_px))
+    if seeds.max() == 0:
+        return base, 0
+    ws = watershed(-dist, markers=seeds, mask=big)
+
+    # Stitch: untouched components keep their identity, split ones are
+    # renumbered. A big component the seeding missed entirely (possible when
+    # its distance transform is flat) falls back to one label rather than
+    # vanishing -- losing it would remove real fat area and look like the
+    # split had improved specificity.
+    out = np.zeros_like(base)
+    nxt, n_split = 1, 0
+    for r in regionprops(base):
+        m = base == r.label
+        if r.area < floor_px:
+            out[m] = nxt; nxt += 1
+            continue
+        parts = np.unique(ws[m])
+        parts = parts[parts > 0]
+        if len(parts) == 0:
+            out[m] = nxt; nxt += 1
+            continue
+        for pl in parts:
+            out[m & (ws == pl)] = nxt; nxt += 1
+        if len(parts) > 1:
+            n_split += 1
+    return out, n_split
+
+
 @dataclass(frozen=True)
 class Component:
     """One connected white region, before any shape filtering."""
@@ -157,6 +237,9 @@ class ComponentSet:
     components: list[Component]
     threshold: float
     tissue_area_um2: float
+    # How many white components the watershed came apart into more than one
+    # droplet. 0 when splitting is off, and 0 when it is on and fired nowhere.
+    n_split: int = 0
 
 
 def extract_components(
@@ -192,7 +275,10 @@ def extract_components(
         white = binary_fill_holes(white)
 
     h, w = white.shape
-    labels = label(white)
+    if cfg.watershed:
+        labels, n_split = split_touching(white, cfg, um2_per_px)
+    else:
+        labels, n_split = label(white), 0
     components: list[Component] = []
     for r in regionprops(labels):
         min_row, min_col, max_row, max_col = r.bbox
@@ -217,6 +303,7 @@ def extract_components(
         components=components,
         threshold=thresh,
         tissue_area_um2=float(tissue_mask.sum()) * um2_per_px,
+        n_split=n_split,
     )
 
 

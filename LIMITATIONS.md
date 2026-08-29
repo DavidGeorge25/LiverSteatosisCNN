@@ -133,7 +133,21 @@ reduction).
 Confluent droplets merge into a single connected component. This inflates mean
 droplet size, deflates droplet counts, and distorts the size distribution.
 Area-based fat fraction is affected less than count-based statistics.
-No watershed or similar separation step is implemented.
+
+**Implemented and measured 2026-08-29; deliberately not enabled.** A
+distance-transform watershed with h-maxima seeding (`fat.watershed`,
+`configs/watershed.yaml`) does separate merged droplets — MASH droplet counts
++20%, mean size −4%, macro fat +14.9%, all 40 slides gaining. But the CCl4
+false-positive floor rises +61.8% (0.165% → 0.267%, worst slide 0.499%), and
+the ratio is roughly 4:1 against at every setting tried. CCl4's mean droplet
+size *rises* as its count rises, which identifies what is being recovered:
+vessel and sinusoidal lumens cut into pieces round enough to pass
+`max_eccentricity`, not fat. Full table in the README's "Tested and rejected".
+
+So the limitation stands, and now has a measured size: **merging costs on the
+order of 9-15% of macro area on steatotic slides**, and the obvious fix cannot
+be adopted without ground truth to say whether what it recovers is fat. That
+makes §1 the blocker for §7 as well.
 
 ## 8. Tile-border effects
 

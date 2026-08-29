@@ -188,6 +188,44 @@ from pale cytoplasm. Measured, and it does not work: CCl4 false positives have
 median interior saturation 14.0, *lower* than real droplets on the mild MASH
 slides at 15.3. Interior color cannot separate them.
 
+**Watershed splitting of touching droplets** — implemented, measured across 85
+slides, and **left off**. It is `fat.watershed` in
+[configs/watershed.yaml](configs/watershed.yaml); the default path is unchanged
+and byte-identical (`tests/regression_steatosis.py`).
+
+It does what it was built to do. Merged pairs come apart: on MASH the droplet
+count rises 20% while mean droplet size falls 4%, and all 40 slides gain area.
+The problem is what else comes apart.
+
+| setting | MASH macro | CCl4 macro | CCl4 worst | MASH:CCl4 | chow max | NASH min | diet gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **off** | 8.02% | **0.165%** | 0.342% | **48.6:1** | 0.20% | 7.58% | 37.5x |
+| depth 1.5 µm | 9.22% (+14.9%) | 0.267% (+61.8%) | 0.499% | 34.5:1 | 0.29% | 9.49% | 32.5x |
+| depth 2.5 µm | 8.72% (+8.7%) | 0.217% (+31.5%) | 0.457% | 40.1:1 | 0.21% | 8.70% | **40.8x** |
+| depth 1.5, size floor 160 µm² | 9.07% (+13.1%) | 0.264% (+59.7%) | 0.495% | 34.4:1 | 0.29% | 9.21% | 31.7x |
+
+**The false-positive floor rises about four times faster than the signal, at
+every setting.** Depth is the only knob that bites — doubling the size floor
+changes almost nothing — and even at its most conservative the trade is 8.7%
+more MASH signal for 31.5% more CCl4. Worst-case CCl4 reaches 0.457-0.499%,
+against the 0.5% below which a slide-level call is treated as zero.
+
+The tell is CCl4's **mean droplet size going up** (173 → 190-205 µm²) while its
+count goes up 15-31%. On real fat that ratio inverts, which is what MASH does.
+Rising size and rising count together is not merged droplets separating; it is
+elongated sinusoidal and vessel lumens being cut into rounder pieces that then
+pass `max_eccentricity`. The splitter is rescuing the exact false positives the
+eccentricity filter was added to remove — and a fibrosis model, with its
+abnormal vasculature, is unusually rich in them.
+
+**One result points the other way and is the reason this is "left off" rather
+than "rejected".** At depth 2.5 the *chow* negative — four untreated livers,
+normal vasculature — barely moves (0.202 → 0.213%) while NASH gains 15%, so the
+diet gap *improves*, 37.5x → 40.8x. Whether the recovered area is real fat or
+lumen is exactly the question this A/B cannot answer, because both cohorts are
+scored by the same detector that is under test. **40 annotated tiles would
+settle it in an afternoon** — see [LIMITATIONS.md](LIMITATIONS.md) §1.
+
 ## Results — 14 MASH slides, full runs, `configs/tuned.yaml` rev 2
 
 42,335 tiles, 2,722 mm² of tissue, 585 s wall clock at `--workers 5`.
