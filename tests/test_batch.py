@@ -557,6 +557,28 @@ def test_slide_summary_takes_the_median_of_the_finite_scores():
     assert out["tiles"].iloc[0] == 3, "a NaN tile was counted"
 
 
+def test_the_diet_labelled_batch_is_reserved_by_default():
+    """R22-354 is the only batch whose filenames record diet and whose slides
+    were all stained together, which makes it the only external validation the
+    steatosis arm has. If it ever reaches a training fold, that measurement
+    becomes the detector grading its own homework and no later check can undo
+    it -- so the default has to be the safe one, not a convention."""
+    from mashpath.train.splits import (RESERVED_BATCHES, LeakySplitError,
+                                       assert_not_trained_on)
+    assert "2025-03-28_Celina 656D H&E" in RESERVED_BATCHES, \
+        f"the diet-labelled batch is not reserved: {RESERVED_BATCHES}"
+    frame = pd.DataFrame({
+        "slide": ["a", "b", "c"],
+        "batch": ["2025-03-28_Celina 656D H&E", "B2", "B3"],
+        "label": [1, 0, 1]})
+    try:
+        assert_not_trained_on(frame, ["train", "train", "validation"])
+    except LeakySplitError as exc:
+        assert "diet and treatment are known" in str(exc)
+    else:
+        raise AssertionError("training on the reserved batch was allowed")
+
+
 def main() -> int:
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]
     failed = 0

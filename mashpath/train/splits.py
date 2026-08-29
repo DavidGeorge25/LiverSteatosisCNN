@@ -54,7 +54,18 @@ SLIDE_COL = "slide"
 # `assert_not_trained_on` raises if one ever does.
 #
 # Add batch names here as the lab identifies them.
-RESERVED_BATCHES: tuple[str, ...] = ()
+#
+# 2026-08-29: `2025-03-28_Celina 656D H&E` (accession R22-354) is one of them,
+# and it can be named without waiting for the lab, because the criterion above
+# identifies it -- it is the ONLY batch in 260 slides whose filenames record
+# diet, and all eight of its slides were stained in one run, so it is the only
+# place where diet varies and stain does not. That made it the steatosis
+# detector's external validation (chow vs NASH, AUC 1.000, p 0.0286, a 38x gap
+# on labels the pipeline never saw -- docs/STEATOSIS_NINE_BATCHES.md §1), and
+# it is the only normal liver in the collection. Eight slides is a cheap price
+# for keeping the one measurement that is not the detector grading its own
+# homework.
+RESERVED_BATCHES: tuple[str, ...] = ("2025-03-28_Celina 656D H&E",)
 
 
 class LeakySplitError(RuntimeError):
