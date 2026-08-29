@@ -148,8 +148,16 @@ def export_slide(
     seed: int,
     agree: float = 0.5,
     save_images: bool = True,
+    extra: dict | None = None,
 ) -> list[dict]:
-    """Export one slide's tiles with consensus labels and confidence maps."""
+    """Export one slide's tiles with consensus labels and confidence maps.
+
+    `split` may be "" to write flat into `out_dir` instead of into a
+    train/val/test subdirectory -- see `build_flat_dataset` for why that is the
+    preferred layout now. `extra` is merged into every manifest row, which is
+    how batch and diet ride along without this function needing to know what
+    they are.
+    """
     slide = Slide(str(slide_path), cfg.slide)
     rows: list[dict] = []
     try:
@@ -164,8 +172,9 @@ def export_slide(
 
         um2 = slide.um2_per_pixel(cfg.tiling.level)
         name = Path(slide_path).stem
-        for sub in ("images", "labels", "confidence"):
-            (out_dir / split / sub).mkdir(parents=True, exist_ok=True)
+        dest = out_dir / split if split else out_dir
+        for sub in ("images", "labels", "confidence", "tissue"):
+            (dest / sub).mkdir(parents=True, exist_ok=True)
 
         for t in tiles:
             rgb = t.read(slide, cfg.tiling.level)
@@ -176,12 +185,22 @@ def export_slide(
             stem = f"{name}__{t.name}"
 
             if save_images:
-                save_rgb(out_dir / split / "images" / f"{stem}.png", rgb)
+                save_rgb(dest / "images" / f"{stem}.png", rgb)
                 m8 = (mask.astype(np.uint8) * 255)
-                save_rgb(out_dir / split / "labels" / f"{stem}.png",
+                save_rgb(dest / "labels" / f"{stem}.png",
                          np.dstack([m8, m8, m8]))
-                save_rgb(out_dir / split / "confidence" / f"{stem}.png",
+                save_rgb(dest / "confidence" / f"{stem}.png",
                          np.dstack([conf, conf, conf]))
+                # The tissue mask, because glass is white and a model given a
+                # tile with background in it has every reason to call the
+                # background fat. The teacher never could -- `extract_components`
+                # does `white &= tissue_mask` before it measures anything -- so
+                # without this the student is scored on a larger canvas than the
+                # teacher was, and its fat fraction can exceed 1. 5.8% of tiles
+                # in this build are under 90% tissue, so it is not a corner case.
+                t8 = (tmask.astype(np.uint8) * 255)
+                save_rgb(dest / "tissue" / f"{stem}.png",
+                         np.dstack([t8, t8, t8]))
 
             st = r.agreement_stats(agree)
             rows.append({
@@ -201,6 +220,7 @@ def export_slide(
                 "unanimous_of_any": round(st["unanimous_of_any"], 4),
                 "contested_of_label": round(st["contested_of_consensus"], 4),
                 "is_negative": cohort == "negative",
+                **(extra or {}),
             })
         return rows
     finally:
@@ -300,4 +320,184 @@ def build_dataset(
             indent=2,
         )
     )
+    return df
+
+
+# ---------------------------------------------------------------------------
+# The 9-batch build. No baked splits.
+# ---------------------------------------------------------------------------
+
+def resolve_batches(paths: Sequence[str | Path],
+                    dripped: str | Path = "cluster/.dripped"
+                    ) -> tuple[dict[str, str], list[str]]:
+    """slide stem -> staining batch, and the stems that had to be guessed.
+
+    Batch is not in the SVS. `cluster/.dripped` is the authoritative record;
+    the containing folder is the fallback, and on the lab's OneDrive the two
+    happen to agree because both are the staining-run folder. The fallback is
+    reported rather than silent: a slide whose batch was guessed from a
+    directory someone could rename is a slide whose held-out-batch result
+    cannot be trusted, and that has to be visible in the manifest's provenance
+    rather than discovered later.
+    """
+    from ...review.tileset import batch_index
+    index = batch_index(dripped)
+    out, guessed = {}, []
+    for p in paths:
+        stem = Path(p).stem
+        if stem in index:
+            out[stem] = index[stem]
+        else:
+            out[stem] = Path(p).parent.name
+            guessed.append(stem)
+    return out, guessed
+
+
+def _export_one(args) -> tuple[str, list[dict], dict | None]:
+    """One slide, in a worker process. Rebuilds the ensemble locally.
+
+    `default_ensemble` is cheap and rebuilding it here avoids shipping nine
+    config objects through the pickle for every slide; more importantly it
+    means the workers cannot be handed a members list that has drifted from
+    the config they are also given, which would be invisible in the output.
+    """
+    (path, cfg, out_dir, max_tiles, seed, agree, save_images, extra) = args
+    stem = Path(path).stem
+    try:
+        rows = export_slide(path, cfg, default_ensemble(cfg.fat), Path(out_dir),
+                            "", "unknown", max_tiles, seed, agree, save_images,
+                            extra=extra)
+        return stem, rows, None
+    except Exception as exc:
+        return stem, [], {"slide": stem, "stage": "export",
+                          "error": f"{type(exc).__name__}: {exc}"}
+
+
+def build_flat_dataset(
+    slides: Sequence[str | Path],
+    cfg: Config,
+    out_dir: str | Path,
+    max_tiles_per_slide: int = 150,
+    agree: float = 0.5,
+    seed: int = 0,
+    save_images: bool = True,
+    workers: int = 1,
+    dripped: str | Path = "cluster/.dripped",
+    reserved: Sequence[str] | None = None,
+    negative_below: float = 0.01,
+) -> pd.DataFrame:
+    """Export every slide flat, with batch in the manifest and NO split on disk.
+
+    **Why no train/val/test directories.** `build_dataset` writes them, planned
+    by slide and stratified by severity, and that layout is the mistake
+    `docs/BATCH_EFFECTS.md` §2 is about: it makes a slide-level split look like
+    the model's split, and a slide-level split tests generalisation to a new
+    animal rather than to a new stain. Two slides from one batch were cut on
+    one day by one person from one reagent lot; holding one out proves nothing
+    about the next staining run. With batch on every row, `mashpath.train.splits`
+    does the folding at training time, where it can refuse a tile-level split
+    outright and enforce the reserved batches. A directory called `train/`
+    can do neither.
+
+    **Reserved batches are not exported at all.** `splits.py` already prevents
+    them reaching a training fold; leaving them out of the dataset as well means
+    a training script that never imports `splits.py` still cannot touch them.
+    The one measurement in this project that is not the detector grading its own
+    homework is worth two locks.
+
+    `negative_below` labels a slide `negative` when its exported tiles average
+    less than this fat fraction. Derived rather than declared, because 6 of the
+    9 batches have no cohort metadata -- and it is recorded per slide in the
+    manifest so a later metadata key can overwrite it without a re-export.
+    """
+    from ...review.tileset import diet_from_name
+    from ...train.splits import RESERVED_BATCHES
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    members = default_ensemble(cfg.fat)
+    reserved = tuple(RESERVED_BATCHES if reserved is None else reserved)
+
+    paths = [Path(p) for p in slides]
+    batch_of, guessed = resolve_batches(paths, dripped)
+
+    held = [p for p in paths if batch_of[p.stem] in reserved]
+    paths = [p for p in paths if batch_of[p.stem] not in reserved]
+    if held:
+        print(f"reserved: {len(held)} slide(s) from {sorted(set(reserved))} "
+              f"excluded from the export entirely", flush=True)
+    if guessed:
+        print(f"batch guessed from the folder name for {len(guessed)} slide(s)",
+              flush=True)
+
+    jobs = [(str(p), cfg, str(out_dir), max_tiles_per_slide, seed, agree,
+             save_images,
+             {"batch": batch_of[p.stem], "diet": diet_from_name(p.stem),
+              "batch_guessed": p.stem in guessed})
+            for p in paths]
+
+    all_rows: list[dict] = []
+    failures: list[dict[str, str]] = []
+
+    def _record(i: int, stem: str, rows: list[dict], err: dict | None) -> None:
+        if err:
+            err["batch"] = batch_of[stem]
+            failures.append(err)
+            print(f"  SKIP {stem}: {err['error']}", flush=True)
+            return
+        all_rows.extend(rows)
+        fat = float(np.mean([r["fat_fraction"] for r in rows])) if rows else 0.0
+        print(f"  [{i}/{len(jobs)}] {stem}: {len(rows)} tiles, "
+              f"mean fat {fat * 100:.2f}%", flush=True)
+
+    if workers > 1:
+        # Each slide opens its own reader and writes filenames prefixed by its
+        # own stem, so slides never contend for a file. Chunked at one job per
+        # task because slides differ several-fold in tile count and a static
+        # chunk would leave one worker holding the big ones.
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            for i, (stem, rows, err) in enumerate(
+                    pool.map(_export_one, jobs, chunksize=1), 1):
+                _record(i, stem, rows, err)
+    else:
+        for i, job in enumerate(jobs, 1):
+            _record(i, *_export_one(job))
+
+    df = pd.DataFrame(all_rows)
+    # `split` is always "" here and would be an invitation to use it. The whole
+    # point of this layout is that the split does not exist until training
+    # time, so the column does not either.
+    df = df.drop(columns=["split"], errors="ignore")
+    if not df.empty:
+        # Cohort is derived from what was measured, not declared, because most
+        # of these batches have no metadata. Per slide, so one late metadata
+        # key can correct it without re-exporting 21 GB.
+        per_slide = df.groupby("slide")["fat_fraction"].mean()
+        df["cohort"] = np.where(
+            df["slide"].map(per_slide) < negative_below, "negative", "positive")
+        df["is_negative"] = df["cohort"] == "negative"
+    df.to_csv(out_dir / "manifest.csv", index=False)
+    (out_dir / "failures.json").write_text(json.dumps(failures, indent=2))
+    (out_dir / "provenance.json").write_text(json.dumps({
+        "layout": "flat -- split at training time by mashpath.train.splits",
+        "slides_exported": int(df["slide"].nunique()) if not df.empty else 0,
+        "batches": sorted(df["batch"].unique().tolist()) if not df.empty else [],
+        "reserved_excluded": sorted(set(reserved)),
+        "reserved_slides_excluded": sorted(p.stem for p in held),
+        "batch_guessed_from_folder": sorted(guessed),
+        "max_tiles_per_slide": max_tiles_per_slide,
+        "agree": agree, "seed": seed,
+        "negative_below": negative_below,
+    }, indent=2))
+    cfg.save(out_dir / "config_used.yaml")
+    (out_dir / "ensemble.json").write_text(json.dumps(
+        [{"name": m.name, "white_threshold": m.cfg.white_threshold,
+          "min_area_um2": m.cfg.min_area_um2,
+          "max_eccentricity": m.cfg.max_eccentricity,
+          "circularity_min": m.cfg.circularity_min,
+          "solidity_min": m.cfg.solidity_min} for m in members], indent=2))
+    if not df.empty:
+        print(f"\n{len(df)} tiles, {df['slide'].nunique()} slides, "
+              f"{df['batch'].nunique()} batches -> {out_dir}", flush=True)
     return df
