@@ -418,7 +418,24 @@ def build_flat_dataset(
     members = default_ensemble(cfg.fat)
     reserved = tuple(RESERVED_BATCHES if reserved is None else reserved)
 
-    paths = [Path(p) for p in slides]
+    # One slide, one export. Tile ids are `<stem>__<tile>`, so the same slide
+    # reached by two paths writes the same filenames twice and lands twice in
+    # the manifest -- the second overwriting the first, the duplicate rows
+    # silently weighting that animal double in training. Not hypothetical:
+    # R26-122-1_HE_70.svs sits both at the top of /scratch/$USER/slides and
+    # inside its batch folder, so the obvious glob over the cluster's slide
+    # directory returns it twice.
+    paths, seen, dupes = [], set(), []
+    for q in (Path(x) for x in slides):
+        if q.stem in seen:
+            dupes.append(str(q))
+            continue
+        seen.add(q.stem)
+        paths.append(q)
+    if dupes:
+        print(f"{len(dupes)} duplicate slide path(s) ignored, first: {dupes[0]}",
+              flush=True)
+
     batch_of, guessed = resolve_batches(paths, dripped)
 
     held = [p for p in paths if batch_of[p.stem] in reserved]
@@ -429,6 +446,22 @@ def build_flat_dataset(
     if guessed:
         print(f"batch guessed from the folder name for {len(guessed)} slide(s)",
               flush=True)
+
+    # A batch of one is almost always a path that did not resolve rather than a
+    # staining run with one slide in it -- `batch_index` recognises "no batch
+    # folder" by the literal directory name `slides`, so a slide sitting at the
+    # top of a differently-named slide root takes that root's name as its batch.
+    # It would then become a leave-one-batch-out fold of one slide and report a
+    # number that means nothing. Reported here rather than raised: it is a
+    # smell, not always an error, and a build that refuses to run is worse than
+    # one that says what it found.
+    from collections import Counter
+    sizes = Counter(batch_of[q.stem] for q in paths)
+    singles = sorted(b for b, n in sizes.items() if n == 1)
+    for b in singles:
+        print(f"WARNING: batch {b!r} has ONE slide. Check it is a real staining "
+              f"run and not an unresolved path -- as a held-out fold it would "
+              f"report a meaningless number.", flush=True)
 
     jobs = [(str(p), cfg, str(out_dir), max_tiles_per_slide, seed, agree,
              save_images,
@@ -486,6 +519,8 @@ def build_flat_dataset(
         "reserved_excluded": sorted(set(reserved)),
         "reserved_slides_excluded": sorted(p.stem for p in held),
         "batch_guessed_from_folder": sorted(guessed),
+        "duplicate_paths_ignored": sorted(dupes),
+        "single_slide_batches": singles,
         "max_tiles_per_slide": max_tiles_per_slide,
         "agree": agree, "seed": seed,
         "negative_below": negative_below,
