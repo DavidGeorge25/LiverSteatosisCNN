@@ -489,6 +489,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="directory of the reserved batch's exported tiles")
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--crop", type=int, default=None)
+    p.add_argument("--base-filters", type=int, default=None,
+                   help="width of the first block; halving it is ~4x cheaper "
+                        "and is how this runs on a CPU at all")
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--dice-weight", type=float, default=None,
                    help="ablation: 0 is plain cross-entropy, which collapses")
@@ -501,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = UNetConfig()
     for k, v in (("epochs", a.epochs), ("crop", a.crop),
+                 ("base_filters", a.base_filters),
                  ("batch_size", a.batch_size), ("augment", a.augment),
                  ("stain_normalize", a.stain_normalize),
                  ("dice_weight", a.dice_weight)):

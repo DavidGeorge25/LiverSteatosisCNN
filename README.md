@@ -264,7 +264,8 @@ on all 9 — 259 slides, 60 seeded tiles each.
 **It separates known diet with stain held fixed.** `R22-354` is the only
 accession whose filenames record diet and whose slides were all stained in one
 run. Four chow against four NASH, genotype balanced, detector never previously
-run on any of them: **AUC 1.000, p = 0.0286, lowest NASH 38x the highest chow.**
+run on any of them: **AUC 1.000, p = 0.0286, lowest NASH 37.5x the highest
+chow** (7.58% against 0.20%).
 Chow reads 0.07-0.20%, inside the CCl4 false-positive range of 0.04-0.34% — two
 unrelated kinds of negative landing in the same place.
 

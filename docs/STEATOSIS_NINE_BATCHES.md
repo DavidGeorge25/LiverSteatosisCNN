@@ -47,8 +47,8 @@ not** — and the detector had never seen any of it.
 | nash | ACLY656 | R22-354_25_ACLY656 NASH 6 | 9.80% | 53 |
 | nash | WT | R22-354_8_WT-NASH2 | 10.46% | 61 |
 
-**AUC 1.000. Mann–Whitney p = 0.0286. The lowest NASH slide is 38× the highest
-chow slide.** Genotype is balanced, 2 WT and 2 ACLY656 a side, so the contrast
+**AUC 1.000. Mann–Whitney p = 0.0286. The lowest NASH slide is 37.5× the
+highest chow slide** — 7.58% against 0.20%. Genotype is balanced, 2 WT and 2 ACLY656 a side, so the contrast
 is diet and not strain.
 
 State the power honestly: with 4 animals a side, p = 0.0286 is the *smallest

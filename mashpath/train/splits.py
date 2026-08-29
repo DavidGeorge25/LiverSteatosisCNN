@@ -60,7 +60,7 @@ SLIDE_COL = "slide"
 # identifies it -- it is the ONLY batch in 260 slides whose filenames record
 # diet, and all eight of its slides were stained in one run, so it is the only
 # place where diet varies and stain does not. That made it the steatosis
-# detector's external validation (chow vs NASH, AUC 1.000, p 0.0286, a 38x gap
+# detector's external validation (chow vs NASH, AUC 1.000, p 0.0286, a 37.5x gap
 # on labels the pipeline never saw -- docs/STEATOSIS_NINE_BATCHES.md §1), and
 # it is the only normal liver in the collection. Eight slides is a cheap price
 # for keeping the one measurement that is not the detector grading its own
