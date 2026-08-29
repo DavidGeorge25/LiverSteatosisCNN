@@ -353,6 +353,115 @@ def resolve_batches(paths: Sequence[str | Path],
     return out, guessed
 
 
+def _finalize_rows(rows: list[dict]) -> pd.DataFrame:
+    """Manifest frame from exported rows: drop `split`, derive `cohort`.
+
+    Shared by the local loop and the cluster's finalize step, so the two cannot
+    produce manifests that differ in a column.
+    """
+    df = pd.DataFrame(rows)
+    # `split` is always "" here and would be an invitation to use it. The whole
+    # point of this layout is that the split does not exist until training
+    # time, so the column does not either.
+    df = df.drop(columns=["split"], errors="ignore")
+    return df
+
+
+def export_one(slide_path: str | Path, cfg: Config, out_dir: str | Path,
+               max_tiles_per_slide: int = 150, agree: float = 0.5,
+               seed: int = 0, dripped: str | Path = "cluster/.dripped",
+               reserved: Sequence[str] | None = None) -> pd.DataFrame:
+    """Export ONE slide and write its manifest fragment. The cluster entry point.
+
+    On Fir the whole-collection loop is the wrong shape: a slide read straight
+    off Lustre costs ~82x what the same read costs on local disk (measured, see
+    `cluster/ballooning_range.sbatch`), so 260 slides in one job would spend
+    almost all of its wall clock waiting on per-operation latency. One slide per
+    array task, staged to node-local NVMe by the sbatch first, turns that back
+    into the 30 s per slide it is on a laptop.
+
+    Fragments rather than one shared manifest because array tasks run
+    concurrently: appending to a single CSV from 15 processes interleaves rows
+    and occasionally truncates one. `finalize_flat_dataset` concatenates them.
+    """
+    from ...review.tileset import diet_from_name
+    from ...train.splits import RESERVED_BATCHES
+
+    out_dir = Path(out_dir)
+    stem = Path(slide_path).stem
+    reserved = tuple(RESERVED_BATCHES if reserved is None else reserved)
+    batch_of, guessed = resolve_batches([slide_path], dripped)
+    if batch_of[stem] in reserved:
+        raise ValueError(
+            f"{stem} is in reserved batch {batch_of[stem]!r} and must not be "
+            f"exported into the training set. Export it separately, into its "
+            f"own directory, with reserved=().")
+
+    rows = export_slide(slide_path, cfg, default_ensemble(cfg.fat), out_dir, "",
+                        "unknown", max_tiles_per_slide, seed, agree, True,
+                        extra={"batch": batch_of[stem],
+                               "diet": diet_from_name(stem),
+                               "batch_guessed": bool(guessed)})
+    parts = out_dir / "manifest_parts"
+    parts.mkdir(parents=True, exist_ok=True)
+    df = _finalize_rows(rows)
+    df.to_csv(parts / f"{stem}.csv", index=False)
+    return df
+
+
+def finalize_flat_dataset(out_dir: str | Path, cfg: Config | None = None,
+                          negative_below: float = 0.01) -> pd.DataFrame:
+    """Concatenate the fragments an array run left, and write the manifest.
+
+    Deliberately separate from the export so it can be rerun after a failed
+    task is resubmitted, without re-exporting the 250 slides that worked.
+    """
+    out_dir = Path(out_dir)
+    parts = sorted((out_dir / "manifest_parts").glob("*.csv"))
+    if not parts:
+        raise FileNotFoundError(f"no manifest fragments under {out_dir}/manifest_parts")
+    df = pd.concat([pd.read_csv(f) for f in parts], ignore_index=True)
+    dupes = df["id"].duplicated().sum()
+    if dupes:
+        raise ValueError(
+            f"{dupes} duplicate tile id(s) across fragments -- a slide was "
+            f"exported by more than one task. Fix the slide list before "
+            f"training; duplicate rows weight that animal double.")
+    df = _assign_cohort(df, negative_below)
+    df.to_csv(out_dir / "manifest.csv", index=False)
+    (out_dir / "provenance.json").write_text(json.dumps({
+        "layout": "flat -- split at training time by mashpath.train.splits",
+        "assembled_from_fragments": len(parts),
+        "slides": int(df["slide"].nunique()),
+        "batches": sorted(df["batch"].unique().tolist()),
+        "tiles": int(len(df)),
+        "negative_below": negative_below,
+    }, indent=2))
+    if cfg is not None:
+        cfg.save(out_dir / "config_used.yaml")
+    # The batch list the training array is driven by, written here so nobody
+    # has to derive it by hand and get one name wrong.
+    (out_dir / "batches.txt").write_text(
+        "\n".join(sorted(df["batch"].unique())) + "\n")
+    print(f"{len(df)} tiles, {df['slide'].nunique()} slides, "
+          f"{df['batch'].nunique()} batches -> {out_dir}", flush=True)
+    return df
+
+
+def _assign_cohort(df: pd.DataFrame, negative_below: float) -> pd.DataFrame:
+    """Cohort from what was measured, not declared: six of the nine batches
+    have no metadata. Per slide, so a later metadata key can correct it without
+    re-exporting 21 GB."""
+    if df.empty:
+        return df
+    per_slide = df.groupby("slide")["fat_fraction"].mean()
+    df = df.copy()
+    df["cohort"] = np.where(df["slide"].map(per_slide) < negative_below,
+                            "negative", "positive")
+    df["is_negative"] = df["cohort"] == "negative"
+    return df
+
+
 def _export_one(args) -> tuple[str, list[dict], dict | None]:
     """One slide, in a worker process. Rebuilds the ensemble locally.
 
@@ -497,19 +606,10 @@ def build_flat_dataset(
         for i, job in enumerate(jobs, 1):
             _record(i, *_export_one(job))
 
-    df = pd.DataFrame(all_rows)
-    # `split` is always "" here and would be an invitation to use it. The whole
-    # point of this layout is that the split does not exist until training
-    # time, so the column does not either.
-    df = df.drop(columns=["split"], errors="ignore")
-    if not df.empty:
-        # Cohort is derived from what was measured, not declared, because most
-        # of these batches have no metadata. Per slide, so one late metadata
-        # key can correct it without re-exporting 21 GB.
-        per_slide = df.groupby("slide")["fat_fraction"].mean()
-        df["cohort"] = np.where(
-            df["slide"].map(per_slide) < negative_below, "negative", "positive")
-        df["is_negative"] = df["cohort"] == "negative"
+    for r in all_rows:
+        pass
+    df = _finalize_rows(all_rows)
+    df = _assign_cohort(df, negative_below)
     df.to_csv(out_dir / "manifest.csv", index=False)
     (out_dir / "failures.json").write_text(json.dumps(failures, indent=2))
     (out_dir / "provenance.json").write_text(json.dumps({

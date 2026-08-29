@@ -141,14 +141,31 @@ weighting" is a claim, and a claim needs the run without it.
 ## 6. Running it
 
 ```bash
-# on Fir: rebuild the dataset from /scratch (no 25 GB transfer), both halves
-sbatch cluster/dataset.sbatch 150
+cd $MASHPATH_ROOT && git pull
 
-# leave-one-batch-out, one fold per array task
-python -c "import pandas as pd; print('\n'.join(sorted(
-    pd.read_csv('$MASHPATH_OUT/dataset_v2/manifest.csv').batch.unique())))" > batches.txt
-sbatch --array=1-$(wc -l < batches.txt) cluster/unet.sbatch batches.txt
+# One slide per array task, capped at 15 concurrent. Not one job over all 260:
+# a slide read off Lustre costs ~82x a local read, so a single job would spend
+# its wall clock on per-operation latency. Staged to node-local NVMe it is the
+# same ~30 s a slide it is on a laptop.
+awk -F/ '!seen[$NF]++' cluster/.dripped \
+  | grep -v '2025-03-28_Celina' > /scratch/$USER/train_slides.txt   # 252 lines
+sbatch --array=1-252%15 cluster/dataset_array.sbatch /scratch/$USER/train_slides.txt
+
+# Waits for the whole array via --dependency=singleton (shared job name), then
+# assembles the manifest, writes batches.txt, and exports the reserved batch
+# into its own directory.
+sbatch --dependency=singleton cluster/dataset_finalize.sbatch
+
+# Leave-one-batch-out, one fold per task, driven by the batches.txt the
+# finalize step wrote from the manifest itself.
+DS=$MASHPATH_OUT/dataset_v2
+sbatch --array=1-$(wc -l < $DS/batches.txt) cluster/unet.sbatch $DS/batches.txt
 ```
+
+**The array cap is not decoration.** An uncapped submit last time had 219 tasks
+copy a ~500 MB slide off Lustre simultaneously; every one timed out having
+barely started, and a TIMEOUT bills the full wall clock -- ~9,750 core-hours of
+the group's fairshare. `%15` is the cap that worked.
 
 Eight folds, each training on seven staining runs and validating on the eighth,
 each then scored on the reserved batch and the CCl4 floor. `report()` in

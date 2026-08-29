@@ -12,9 +12,14 @@
 # a file, one batch name per line, so a fold that dies can be resubmitted on its
 # own without renumbering the others:
 #
-#   python -c "import pandas as pd; \
-#     print('\n'.join(sorted(pd.read_csv('$DS/manifest.csv').batch.unique())))" > batches.txt
-#   sbatch --array=1-$(wc -l < batches.txt) cluster/unet.sbatch batches.txt
+#   DS=$MASHPATH_OUT/dataset_v2
+#   sbatch --array=1-$(wc -l < $DS/batches.txt) cluster/unet.sbatch $DS/batches.txt
+#
+# batches.txt is written by dataset_finalize.sbatch from the manifest itself,
+# so the fold list cannot disagree with the data -- deriving it by hand is one
+# mistyped batch name away from a fold that trains on everything and validates
+# on nothing, which `split_by_batch` would catch, and one away from a fold that
+# silently omits a batch, which nothing would.
 #
 # 8 cpus, not more: the input pipeline decodes three PNGs per tile and runs the
 # colour augmentation through tf.numpy_function, so it is CPU-bound before it is
