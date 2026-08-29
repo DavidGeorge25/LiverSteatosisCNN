@@ -8,13 +8,15 @@ project: classical CV mask generation, no model training.
 
 | Stage | Status |
 | --- | --- |
-| 1. Slide loading + tissue detection | **done, verified on 51 slides** |
+| 1. Slide loading + tissue detection | **done, verified on 259 slides** |
 | 2. Level-0 tiling | **done** |
 | 3. Fat droplet pseudo-labeling | **done, tuned against a negative control** |
 | 4. Visual QC / contact sheets | **done** |
 | 5. Slide-level summary + CSV | **done** |
 | 6. Cohort survey + parameter sweep | **done** |
 | 7. Pseudo-label export for training | not started (one flag: drop `--no-save-tiles`) |
+| 8. Cross-batch validation, 9 staining runs | **done, unretuned** — [docs/STEATOSIS_NINE_BATCHES.md](docs/STEATOSIS_NINE_BATCHES.md) |
+| 9. U-Net training on the pseudo-labels | not started |
 
 ## Setup
 
@@ -213,6 +215,45 @@ severity range — the 9 new slides roughly doubled the cohort and extended it w
 below the old floor of 6.7%.
 
 Micro % is **measured but excluded from exported labels**; see open problems.
+
+## Results — nine staining batches, 259 slides, nothing retuned
+
+Full record: **[docs/STEATOSIS_NINE_BATCHES.md](docs/STEATOSIS_NINE_BATCHES.md)**.
+
+The pipeline was tuned on 2 staining runs. On 2026-08-29 it was run, unchanged,
+on all 9 — 259 slides, 60 seeded tiles each.
+
+**It separates known diet with stain held fixed.** `R22-354` is the only
+accession whose filenames record diet and whose slides were all stained in one
+run. Four chow against four NASH, genotype balanced, detector never previously
+run on any of them: **AUC 1.000, p = 0.0286, lowest NASH 38x the highest chow.**
+Chow reads 0.07-0.20%, inside the CCl4 false-positive range of 0.04-0.34% — two
+unrelated kinds of negative landing in the same place.
+
+| batch | n | macro mean | range | <1% | >5% |
+| --- | ---: | ---: | --- | ---: | ---: |
+| 2026-04-20_CCl4 (control) | 37 | **0.17%** | 0.04-0.34 | 37 | 0 |
+| 2025-07-09_Evelyn | 23 | 1.30% | 0.44-2.36 | 7 | 0 |
+| 2025-04-29 | 43 | 2.18% | 0.02-14.38 | 23 | 6 |
+| 2025-03-07_Jaya | 29 | 3.71% | 0.11-8.87 | 5 | 9 |
+| 2025-03-28_Celina | 8 | 4.75% | 0.07-10.46 | 4 | 4 |
+| 2025-09-24 | 25 | 6.69% | 1.37-13.42 | 0 | 19 |
+| 2025-08-25 (MASH) | 40 | 8.02% | 0.20-14.82 | 3 | 27 |
+| P273-2026-02-13 | 30 | 8.07% | 0.20-12.45 | 1 | 23 |
+| 2025-11-14 | 24 | 8.64% | 0.47-16.01 | 1 | 21 |
+
+`white_threshold` is an absolute grey level of 210 and no batch degenerates
+under it. The CCl4 floor reproduces at 0.165% against the 0.173% below. And
+severity now varies **within** batch — six of nine batches hold both a sub-1%
+and an over-5% slide — so "predicts fat" and "recognises the staining run" are
+finally different functions.
+
+Controlled for the tissue mask: rerunning all 259 slides with per-slide Otsu
+replaced by one fixed threshold moves the estimate by a median 0.6%
+(Spearman 0.9966) and changes no conclusion.
+
+Absolute fat fractions are **still uncalibrated** — see
+[LIMITATIONS.md](LIMITATIONS.md) §1, which this does not touch.
 
 ## Results — cohort separation, both cohorts run in full
 

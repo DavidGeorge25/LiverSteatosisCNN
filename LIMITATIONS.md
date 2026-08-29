@@ -68,6 +68,14 @@ estimates are inflated and the tuning derived from them is biased. Since the
 entire specificity argument rests on this cohort, the assumption is
 load-bearing and should be confirmed before publication.
 
+**Partly answered 2026-08-29** ([docs/STEATOSIS_NINE_BATCHES.md](docs/STEATOSIS_NINE_BATCHES.md) §1).
+Four untreated chow-fed animals from a different accession and a different
+staining run read **0.07-0.20% macro fat**, inside the CCl4 range of
+0.04-0.34%. Two negatives of unrelated kinds — a fibrosis model and a normal
+liver — land in the same place, so the floor is not a peculiarity of CCl4
+biology. The metadata question for the CCl4 cohort itself is still open and
+still worth asking.
+
 ## 4. Small number of biological replicates
 
 14 steatotic and 37 fat-free slides. Tile counts are large (42,335 and 41,040)
@@ -78,6 +86,14 @@ Resampling **slides** (the correct independent unit) gives a wide interval:
 mean macro fat **9.37%, 95% CI [7.18, 11.40]**
 (`outputs/bootstrap_shipped_config.csv`). Any per-group biological claim from
 14 animals will be underpowered.
+
+**Largely removed 2026-08-29** ([docs/STEATOSIS_NINE_BATCHES.md](docs/STEATOSIS_NINE_BATCHES.md) §2).
+All 260 slides of the collection turned out to be available locally; 259 were
+surveyed under the unchanged tuned config. **~109 slides read above 5% macro
+and ~81 below 1%, across 9 staining batches** — against 14 and 37 in 2. Six of
+the nine batches contain both a slide under 1% and one over 5%, so severity is
+no longer confounded with staining run, which is the condition every
+batch-aware claim in `docs/BATCH_EFFECTS.md` was waiting on.
 
 ## 5. Parameter selection used all available slides
 
@@ -155,6 +171,16 @@ protocols, or laboratories. Thresholds specified in absolute grayscale units
 (`white_threshold`) are the most likely component to fail under stain
 variation; the physical-unit filters (µm²) should transfer better.
 
+**Stain, partly answered 2026-08-29** ([docs/STEATOSIS_NINE_BATCHES.md](docs/STEATOSIS_NINE_BATCHES.md) §2-3).
+The tuned config was run unchanged on **seven staining runs it had never seen**,
+spanning 2025-03-07 to 2026-04-20. `white_threshold` 210 did not degenerate on
+any of them: no batch collapses to zero and none saturates, every batch lands
+inside the 0.04-16% range the tuned cohorts occupy, and the CCl4 floor
+reproduces at 0.165% against the earlier 0.173%. A separate control switched
+per-slide Otsu tissue detection off entirely in favour of one fixed threshold
+for all 259 slides and moved the per-slide estimate by a median 0.6%
+(Spearman 0.9966). **Scanner and site are still single**; stain is not.
+
 ## 12. One slide is unreadable
 
 `R26-122-14_HE.svs` is truncated — its TIFF header points to an image directory
@@ -204,9 +230,16 @@ cite.
 
 ## Priority order for removing these limitations
 
-1. Annotate the 40-tile package → removes §1, quantifies §2 and §6.
-2. Confirm the CCl4 study design → removes §3.
+1. Annotate the 40-tile package → removes §1, quantifies §2 and §6. **Still the
+   gate on every accuracy claim, and still unsent** — `outputs/annotation_set_v1/`
+   has been ready since 2026-08-06 (40 tiles, prefilled masks, written criteria,
+   44 MB, an hour or two of a pathologist's time).
+2. **The diet and cohort key for the 182 slides that have none** → would turn
+   §1's 4-animal diet validation into a ~30-animal one, confirm §3's CCl4 design,
+   and settle whether `2025-04-29`'s 23 sub-1% slides are untreated controls or a
+   detector failure. Costs an email. Promoted above the pixel work because
+   2026-08-29 made it worth several times what it was.
 3. Pathologist steatosis grades (NAS 0–3) per animal → orthogonal validation of
    §1 without pixel work.
 4. Watershed separation → removes §7.
-5. More biological replicates → narrows §4.
+5. ~~More biological replicates~~ → **done 2026-08-29**, 51 slides → 259, see §4.
