@@ -74,16 +74,30 @@ def report(df: pd.DataFrame, missing: list[str]) -> str:
             f"{r['nash_min']:.2f} | {r['gap']:.0f}× |")
 
     worst_auc = d.loc[d["external_auc"].idxmin()]
-    worst_floor = d.loc[d["floor_worst"].idxmax()]
     L += ["",
           f"**Worst external AUC: {worst_auc['held_out_batch']} at "
           f"{worst_auc['external_auc']:.3f}.** Mean {d['external_auc'].mean():.3f}, "
           f"spread {d['external_auc'].max() - d['external_auc'].min():.3f}.",
-          "",
-          f"**Worst false-positive floor: {worst_floor['held_out_batch']} at "
-          f"{worst_floor['floor_worst']:.3f}%** (teacher's worst on that cohort "
-          f"was 0.445%). Mean floor {d['floor_mean'].mean():.3f}%.",
-          "",
+          ""]
+
+    # The chow column is the specificity number that exists on EVERY fold. The
+    # CCl4 floor only exists on the CCl4 fold: for the other seven that cohort
+    # is in training, so its "floor" would be a training-set number wearing the
+    # name of a held-out one. Blank there, and said so, rather than filled in.
+    worst_chow = d.loc[d["chow_max"].idxmax()]
+    L += [f"**Held-out normal liver, every fold:** worst chow slide "
+          f"{worst_chow['chow_max']:.3f}% on {worst_chow['held_out_batch']}, "
+          f"mean {d['chow_max'].mean():.3f}%. The four R22-354 chow animals are "
+          f"held out of every fold, so this is the one specificity number the "
+          f"whole sweep shares. Teacher reads 0.182% on the same slides.", ""]
+
+    if d["floor_worst"].notna().any():
+        wf = d.loc[d["floor_worst"].idxmax()]
+        L += [f"**CCl4 floor (that fold only): {wf['floor_worst']:.3f}% worst "
+              f"slide, {wf['floor_mean']:.3f}% mean**, against the teacher's "
+              f"0.445% / 0.166%. Blank on the other folds because CCl4 is in "
+              f"their training set.", ""]
+    L += [
           "The mean is worth quoting only if the spread is small. A wide spread "
           "means performance depends on which staining run the tiles came from, "
           "which is the failure this evaluation exists to make visible."]
