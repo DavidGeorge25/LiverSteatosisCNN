@@ -16,7 +16,7 @@ project: classical CV mask generation, no model training.
 | 6. Cohort survey + parameter sweep | **done** |
 | 7. Pseudo-label export for training | not started (one flag: drop `--no-save-tiles`) |
 | 8. Cross-batch validation, 9 staining runs | **done, unretuned** — [docs/STEATOSIS_NINE_BATCHES.md](docs/STEATOSIS_NINE_BATCHES.md) |
-| 9. U-Net training on the pseudo-labels | **pipeline built and tested, no model trained** — [docs/STEATOSIS_TRAINING.md](docs/STEATOSIS_TRAINING.md) |
+| 9. U-Net training on the pseudo-labels | **first fold trained** — holds the CCl4 floor, reproduces the diet validation at AUC 1.000 — [docs/STEATOSIS_TRAINING.md](docs/STEATOSIS_TRAINING.md) §7 |
 
 ## Setup
 

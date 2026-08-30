@@ -6,9 +6,8 @@ trained**. Same reason as `BATCH_EFFECTS.md`: the parts of a training pipeline
 that decide whether a result means anything are the hardest to change once
 numbers exist, and the easiest to get wrong under deadline.
 
-Nothing here has been run on a GPU yet. The plumbing is tested end to end on
-CPU (`tests/test_unet.py`, 6 checks) and one fold has been trained on 336 tiles
-for one epoch purely to prove that every code path executes.
+**Updated 2026-08-29 with the first trained fold** — see §7. Still CPU, still
+one fold of eight; the leave-one-batch-out sweep is a cluster job.
 
 ---
 
@@ -175,3 +174,80 @@ predicts what happens when the lab stains a new run next month.
 **Read the spread, not the mean.** A model at 0.90 on seven batches and 0.55 on
 the eighth has a mean of 0.85, reads as a good model, and will fail on the next
 staining run. The 0.55 is the finding.
+
+---
+
+## 7. The first fold: CCl4 held out
+
+Trained on this laptop, CPU only. 1.9M-parameter U-Net (`base_filters` 16),
+192 px random crops, batch 8, confidence-weighted BCE + soft Dice, strong colour
+and stain jitter, no stain normalization. **Fit on 188 slides across 7 staining
+batches; 26 dev slides chose the checkpoint; the 37 CCl4 slides were scored
+once, at the end.** Nine epochs at ~28 min each; dev loss flat from epoch 4
+(0.0085) to epoch 9 (0.0084), and the run was cut at epoch 9 of 12 by a process
+exit — the checkpoint is epoch 9 and the last three epochs would not have moved
+it.
+
+`outputs/unet/ccl4_fold/summary.json`.
+
+### The floor: it does not invent fat on a staining run it never saw
+
+| | model | teacher |
+| --- | ---: | ---: |
+| CCl4 mean, 37 slides | **0.167%** | 0.166% |
+| CCl4 worst slide | **0.351%** | 0.445% |
+
+The student matches its teacher's mean on fat-free tissue to the third decimal
+and is **better on the worst slide** — 0.351% against 0.445%, both under the
+0.5% below which a slide-level call is treated as zero. This is the first
+evidence in the project of the student improving on the teacher rather than
+copying it, and it is the direction that matters: the teacher's worst case is
+where its systematic false positive on pale cytoplasm shows.
+
+Read the honest caveat with it: the model predicts *some* fat on 50% of CCl4
+tiles against the teacher's 33%, so it is more willing to mark a few pixels — it
+just marks fewer of them where it does. Tile-level willingness up, slide-level
+area down.
+
+### The external test: it reproduces the diet validation, and widens it
+
+R22-354 is held out on **both** axes — never trained on, and its staining run
+(`2025-03-28_Celina`) is not in the training set at all. So this is an unseen
+stain and an unseen diet.
+
+| slide | diet | teacher | model |
+| --- | --- | ---: | ---: |
+| R22-354_3_WT-CHOW3 | chow | 0.06% | 0.09% |
+| R22-354_19_ACLY656 CHOW4 | chow | 0.10% | 0.07% |
+| R22-354_1_WT-CHOW1 | chow | 0.12% | 0.14% |
+| R22-354_16_ACLY656 CHOW1 | chow | 0.18% | 0.15% |
+| R22-354_7_WT-NASH1 | nash | 7.93% | 8.61% |
+| R22-354_8_WT-NASH2 | nash | 10.03% | 10.75% |
+| R22-354_25_ACLY656 NASH 6 | nash | 11.07% | 11.72% |
+| R22-354_23_ACLY656 NASH4 | nash | 11.20% | 12.01% |
+
+**Model AUC 1.000, matching the teacher's 1.000 — and the gap widens from 43.5×
+to 57.6×**, because the model reads chow lower (0.150% vs 0.182% at the top) and
+NASH higher (8.61% vs 7.93% at the bottom). Four animals a side, so this
+confirms a failure far more strongly than it confirms a success; what it does
+establish is that nothing was lost in the transfer from labels to model.
+
+### Agreement with the teacher
+
+`dice_vs_teacher` 0.656 on the held-out CCl4 batch, where 67% of tiles carry an
+empty label and Dice on near-empty masks is unstable by construction. On the
+reserved batch it runs 0.86–0.93 on the four NASH slides and 0.53–0.82 on the
+four chow ones — the same instability, from the same cause. **This is agreement,
+not accuracy**, and it is the number to quote least.
+
+### What this fold does and does not establish
+
+It establishes that a U-Net trained only on programmatic pseudo-labels
+transfers to an unseen staining run without inventing fat, and carries the one
+external validation the project has through that transfer intact.
+
+It does not establish generalisation across batches in general — that is the
+other seven folds, and `evaluate.py`'s `report()` prints the worst before the
+mean for a reason. It says nothing about pixel accuracy; `LIMITATIONS.md` §1 is
+untouched. And the model is 1.9M parameters at 192 px because that is what a
+laptop CPU will run in an evening, not because it is the right size.
