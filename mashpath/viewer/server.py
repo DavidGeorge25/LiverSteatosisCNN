@@ -230,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
             m = lib.meta(name)
             from .dzi import DeepZoom
             dz = DeepZoom(m["width"], m["height"])
-            fmt = "png" if overlay else "jpeg"
+            fmt = "png" if overlay else "jpg"
             return self._send(dz.dzi_xml(fmt).encode(), "application/xml", cache=True)
 
         if "_files/" not in rest:

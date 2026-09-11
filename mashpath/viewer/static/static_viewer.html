@@ -318,9 +318,11 @@ function redraw() {
     i => `<b>${int(th.counts[i])}</b> tiles<br><span style="color:var(--ink-3)">${fmt(te[i])}–${fmt(te[i + 1])}% fat</span>`);
 }
 
-async function load(name) {
-  NAME = name;
-  M = await (await fetch(`${encodeURIComponent(name)}/meta.json`)).json();
+// `dir` is the slugified directory on disk; the human-readable slide name
+// lives in the metadata and in the picker. Paths never carry a space.
+async function load(dir) {
+  NAME = dir;
+  M = await (await fetch(`${dir}/meta.json`)).json();
   const m = M;
 
   $('#pct').textContent = fmt(m.fat_percent, 2);
@@ -374,14 +376,14 @@ async function load(name) {
   if (viewer) viewer.destroy();
   viewer = OpenSeadragon({
     id: 'osd', prefixUrl: 'images/',
-    tileSources: `${encodeURIComponent(name)}/slide.dzi`,
+    tileSources: `${dir}/slide.dzi`,
     showNavigator: true, navigatorPosition: 'BOTTOM_RIGHT',
     maxZoomPixelRatio: 2.5, visibilityRatio: 1, constrainDuringPan: true,
     animationTime: .4, blendTime: .1,
   });
   viewer.addOnceHandler('open', () => {
     viewer.addTiledImage({
-      tileSource: `${encodeURIComponent(name)}/overlay.dzi`,
+      tileSource: `${dir}/overlay.dzi`,
       opacity: $('#op').value / 100,
       success: ev => { overlayItem = ev.item; applyOverlay(); },
     });
@@ -419,14 +421,11 @@ setTimeout(() => { const h = $('#hint'); if (h) h.style.transition = 'opacity .6
   const slides = await (await fetch('slides.json')).json();
   const pick = $('#pick');
   pick.innerHTML = slides.map(s =>
-    `<option value="${s.name}">${s.name} — ${fmt(s.fat_percent)}% fat</option>`).join('');
-  pick.onchange = () => {
-    location.hash = encodeURIComponent(pick.value);
-    load(pick.value);
-  };
+    `<option value="${s.dir}">${s.name} — ${fmt(s.fat_percent)}% fat</option>`).join('');
+  pick.onchange = () => { location.hash = pick.value; load(pick.value); };
   if (!slides.length) return;
-  const wanted = decodeURIComponent((location.hash || '').replace(/^#/, ''));
-  const start = slides.some(s => s.name === wanted) ? wanted : slides[0].name;
+  const wanted = (location.hash || '').replace(/^#/, '');
+  const start = slides.some(s => s.dir === wanted) ? wanted : slides[0].dir;
   pick.value = start;
   load(start);
 })();

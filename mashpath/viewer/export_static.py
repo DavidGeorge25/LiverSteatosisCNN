@@ -65,15 +65,34 @@ def _png(arr: np.ndarray) -> bytes:
     return buf.tobytes()
 
 
+def slug(name: str) -> str:
+    """A URL-safe directory name.
+
+    Slide names in this cohort carry spaces and ampersands -- "R22-354_25_
+    ACLY656 NASH 6" -- and a directory named that produces tile URLs full of
+    %20. Static hosts mostly cope, but "mostly" is not a property you want to
+    discover from a PI saying the link is broken. The human-readable name
+    stays in slides.json for the picker.
+    """
+    out = []
+    for ch in name:
+        out.append(ch if (ch.isalnum() or ch in "-_") else "-")
+    s = "".join(out)
+    while "--" in s:
+        s = s.replace("--", "-")
+    return s.strip("-") or "slide"
+
+
 def export_slide(artifact: str | Path, out_dir: str | Path,
                  cfg: Config | None = None, quality: int = 72,
                  min_downsample: int = 2, verbose: bool = True) -> dict:
-    """Write one precomputed slide's tiles under `out_dir/<slide>/`."""
+    """Write one precomputed slide's tiles under `out_dir/<slug>/`."""
     cfg = cfg or Config()
     artifact = Path(artifact)
     meta = json.loads((artifact / "meta.json").read_text())
     name = meta["slide"]
-    dest = Path(out_dir) / name
+    dirname = slug(name)
+    dest = Path(out_dir) / dirname
     (dest / "slide_files").mkdir(parents=True, exist_ok=True)
     (dest / "overlay_files").mkdir(parents=True, exist_ok=True)
 
@@ -120,7 +139,7 @@ def export_slide(artifact: str | Path, out_dir: str | Path,
 
     # DZI descriptors. `Format` differs but the geometry is identical, which is
     # what keeps the two layers registered.
-    (dest / "slide.dzi").write_text(dz.dzi_xml("jpeg"))
+    (dest / "slide.dzi").write_text(dz.dzi_xml("jpg"))
     (dest / "overlay.dzi").write_text(dz.dzi_xml("png"))
 
     # The stats panel reads this. Trimmed to what the page shows, and the
@@ -142,8 +161,9 @@ def export_slide(artifact: str | Path, out_dir: str | Path,
     if verbose:
         print(f"  {name}: {n_tiles} tiles, {n_skipped} skipped as background, "
               f"{n_bytes / 1e6:.1f} MB", flush=True)
-    return {"name": name, "tiles": n_tiles, "skipped": n_skipped,
-            "bytes": n_bytes, "fat_percent": meta["fat_percent"],
+    return {"name": name, "dir": dirname, "tiles": n_tiles,
+            "skipped": n_skipped, "bytes": n_bytes,
+            "fat_percent": meta["fat_percent"],
             "deepest_level": deepest, "deepest_downsample": dz.scale(deepest)}
 
 
@@ -164,8 +184,8 @@ def export_site(artifacts: list[str | Path], out_dir: str | Path,
     # a negative control to a severe animal. That ordering is the argument.
     rows.sort(key=lambda r: r["fat_percent"])
     (out_dir / "slides.json").write_text(json.dumps(
-        [{"name": r["name"], "fat_percent": r["fat_percent"]} for r in rows],
-        indent=2))
+        [{"name": r["name"], "dir": r["dir"], "fat_percent": r["fat_percent"]}
+         for r in rows], indent=2))
 
     shutil.copy(STATIC / "openseadragon.min.js", out_dir / "openseadragon.min.js")
     shutil.copytree(STATIC / "images", out_dir / "images", dirs_exist_ok=True)

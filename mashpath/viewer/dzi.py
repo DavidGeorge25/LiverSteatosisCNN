@@ -96,7 +96,16 @@ class DeepZoom:
         y1 = min(self.height, int(math.ceil((ly0 + th) * s)))
         return x0, y0, max(1, x1 - x0), max(1, y1 - y0), tw, th
 
-    def dzi_xml(self, fmt: str = "jpeg") -> str:
+    def dzi_xml(self, fmt: str = "jpg") -> str:
+        """The .dzi descriptor.
+
+        `fmt` is used by OpenSeadragon as the literal file EXTENSION, not as a
+        media type -- `Format="jpeg"` makes it request `0_0.jpeg`. So this must
+        match the extension actually written on disk. The dynamic server hid
+        this by stripping the extension before dispatching, which meant the
+        mismatch only appeared in the static export, where it showed up as a
+        blank tissue layer under a perfectly good overlay.
+        """
         return (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<Image xmlns="http://schemas.microsoft.com/deepzoom/2008"'
