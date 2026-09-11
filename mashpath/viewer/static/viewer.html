@@ -1,0 +1,492 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mashpath — steatosis viewer</title>
+<link rel="icon" href="data:,">
+<script src="/static/openseadragon.min.js"></script>
+<style>
+/* Sequential blue ramp (validated default) for every magnitude encoding. The
+   overlay mask is red; keeping the charts on a different hue means nobody
+   reads a heatmap cell as if it were the mask itself. */
+:root {
+  color-scheme: light;
+  --surface-0: #f4f4f2;
+  --surface-1: #fcfcfb;
+  --surface-2: #eeeeea;
+  --line:      #dcdcd6;
+  --ink:       #0b0b0b;
+  --ink-2:     #52514e;
+  --ink-3:     #7c7b76;
+  --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec;
+  --seq-400: #3987e5; --seq-450: #2a78d6; --seq-550: #1c5cab;
+  --seq-650: #104281; --seq-700: #0d366b;
+  --bar: var(--seq-450);
+  --fat: #e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232321;
+    --line: #35352f; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8e8d84;
+    --bar: var(--seq-400); --fat: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232321;
+  --line: #35352f; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8e8d84;
+  --bar: var(--seq-400); --fat: #e66767;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex; flex-direction: column;
+  font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--surface-0); color: var(--ink);
+}
+header {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--surface-1);
+  border-bottom: 1px solid var(--line);
+}
+header h1 { font-size: 14px; font-weight: 650; margin: 0; letter-spacing: .01em; }
+header .sub { color: var(--ink-3); font-size: 12px; }
+select, button {
+  font: inherit; color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--ink-3); }
+main { flex: 1; display: flex; min-height: 0; }
+#osd { flex: 1; min-width: 0; background: var(--surface-2); }
+aside {
+  width: 392px; flex: none; overflow-y: auto; padding: 14px;
+  background: var(--surface-1); border-left: 1px solid var(--line);
+}
+@media (max-width: 900px) {
+  main { flex-direction: column; }
+  aside { width: auto; border-left: none; border-top: 1px solid var(--line); }
+  #osd { min-height: 55vh; }
+}
+.card {
+  background: var(--surface-1); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px; margin-bottom: 12px;
+}
+.card h2 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-3); margin: 0 0 9px; font-weight: 650;
+}
+/* The headline. A continuous measurement, shown as one. */
+.hero { font-variant-numeric: tabular-nums; }
+.hero .n { font-size: 44px; font-weight: 620; line-height: 1.04; letter-spacing: -.02em; }
+.hero .n small { font-size: 20px; font-weight: 500; color: var(--ink-2); margin-left: 2px; }
+.hero .cap { color: var(--ink-2); font-size: 12.5px; margin-top: 3px; }
+.badge {
+  display: inline-block; font-size: 10.5px; letter-spacing: .04em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--ink-2); background: var(--surface-2);
+  margin-top: 8px;
+}
+/* Overlay control: the single most convincing thing in the demo, so it is the
+   first thing under the number and has a keyboard shortcut. */
+.toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 11px; border-radius: 9px; font-weight: 560;
+  border: 1px solid var(--line); background: var(--surface-2); cursor: pointer;
+}
+.toggle[aria-pressed="true"] { border-color: var(--fat); }
+.toggle .dot {
+  width: 11px; height: 11px; border-radius: 3px; flex: none;
+  background: var(--fat); opacity: .25;
+}
+.toggle[aria-pressed="true"] .dot { opacity: 1; }
+.toggle .k { margin-left: auto; font-size: 11px; color: var(--ink-3); font-weight: 450; }
+input[type=range] { width: 100%; accent-color: var(--seq-450); margin-top: 10px; }
+.row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0;
+       font-variant-numeric: tabular-nums; }
+.row span:first-child { color: var(--ink-2); }
+.row span:last-child { font-weight: 560; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; }
+canvas { display: block; width: 100%; }
+.legend { display: flex; align-items: center; gap: 7px; margin-top: 7px;
+          font-size: 11px; color: var(--ink-2); }
+.legend .ramp { flex: 1; height: 7px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--seq-100), var(--seq-300), var(--seq-450), var(--seq-650)); }
+.note { font-size: 11.5px; color: var(--ink-3); line-height: 1.45; margin-top: 9px; }
+.caveat {
+  font-size: 11.5px; line-height: 1.45; color: var(--ink-2);
+  border-left: 2px solid var(--line); padding-left: 9px;
+}
+#tip {
+  position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
+  background: var(--surface-1); border: 1px solid var(--line); border-radius: 7px;
+  padding: 5px 8px; font-size: 11.5px; z-index: 40; white-space: nowrap;
+  box-shadow: 0 3px 12px rgba(0,0,0,.16); font-variant-numeric: tabular-nums;
+}
+table { width: 100%; border-collapse: collapse; font-size: 11.5px;
+        font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 2px 4px; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; color: var(--ink-2); }
+details summary { cursor: pointer; color: var(--ink-3); font-size: 11.5px; }
+#live { margin-top: 8px; font-size: 12px; color: var(--ink-2);
+        font-variant-numeric: tabular-nums; }
+</style>
+
+<header>
+  <h1>mashpath — steatosis</h1>
+  <select id="pick"></select>
+  <span class="sub" id="prov"></span>
+  <button id="theme" style="margin-left:auto">◐</button>
+</header>
+
+<main>
+  <div id="osd"></div>
+  <aside>
+
+    <div class="card hero">
+      <h2>Fat area, continuous</h2>
+      <div class="n"><span id="pct">—</span><small>% of tissue</small></div>
+      <div class="cap" id="herocap">—</div>
+      <div class="badge" id="cov">—</div>
+    </div>
+
+    <div class="card">
+      <h2>Predicted fat overlay</h2>
+      <button class="toggle" id="ov" aria-pressed="true">
+        <span class="dot"></span><span>Overlay on</span><span class="k">space</span>
+      </button>
+      <input type="range" id="op" min="0" max="100" value="62">
+      <div class="row"><span>Opacity</span><span id="opv">62%</span></div>
+      <div class="note">Flip it off to see the raw tissue, on to see exactly which
+        pixels the model called fat. The percentage above never changes with
+        zoom — inference ran once at native resolution.</div>
+    </div>
+
+    <div class="card">
+      <h2>Droplets</h2>
+      <div class="grid2">
+        <div class="row"><span>Total</span><span id="dtot">—</span></div>
+        <div class="row"><span>Median area</span><span id="dmed">—</span></div>
+        <div class="row"><span>Macro band</span><span id="dmac">—</span></div>
+        <div class="row"><span>Micro band</span><span id="dmic">—</span></div>
+      </div>
+      <canvas id="hist" height="150" style="margin-top:8px"></canvas>
+      <div class="note" id="dnote"></div>
+    </div>
+
+    <div class="card">
+      <h2>Where the fat is</h2>
+      <canvas id="zonal" height="220"></canvas>
+      <div class="legend"><span id="zlo">0%</span><span class="ramp"></span><span id="zhi">—</span></div>
+      <div class="row" style="margin-top:6px"><span>Tile spread (p10–p90)</span><span id="zspread">—</span></div>
+      <div class="note" id="znote"></div>
+    </div>
+
+    <div class="card">
+      <h2>Fat per tile</h2>
+      <canvas id="thist" height="130"></canvas>
+      <div class="note">Each 512 px tile measured separately. A narrow peak is
+        even infiltration; a long tail means some regions carry far more than
+        the slide average.</div>
+    </div>
+
+    <div class="card">
+      <h2>Model certainty</h2>
+      <div class="row"><span>Mean probability of called fat</span><span id="cmp">—</span></div>
+      <div class="row"><span>Ambiguous pixels (p 0.35–0.65)</span><span id="camb">—</span></div>
+      <div class="note" id="cnote"></div>
+    </div>
+
+    <div class="card">
+      <h2>Live spot check</h2>
+      <button id="run">Re-run the model on this view</button>
+      <div id="live">Runs the network now, on the region you are looking at.</div>
+    </div>
+
+    <div class="card">
+      <h2>Provenance</h2>
+      <div id="meta"></div>
+      <details style="margin-top:8px"><summary>Data table</summary>
+        <table id="tbl"></table>
+      </details>
+      <div class="caveat" style="margin-top:10px" id="caveat"></div>
+    </div>
+
+  </aside>
+</main>
+<div id="tip"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const tip = $('#tip');
+let viewer, M = null, overlayItem = null;
+
+const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : v.toFixed(d);
+const int = v => (v == null) ? '—' : v.toLocaleString();
+
+// Sequential ramp, light -> dark. One hue, no rainbow: the map encodes a
+// single magnitude and a hue shift would invent a category boundary that the
+// biology does not have.
+const RAMP = ['#cde2fb','#9ec5f4','#6da7ec','#3987e5','#2a78d6','#1c5cab','#104281','#0d366b'];
+function ramp(t) {
+  if (t == null || isNaN(t)) return null;
+  t = Math.max(0, Math.min(1, t));
+  const x = t * (RAMP.length - 1), i = Math.floor(x), f = x - i;
+  if (i >= RAMP.length - 1) return RAMP[RAMP.length - 1];
+  const a = RAMP[i].match(/\w\w/g).map(h => parseInt(h, 16));
+  const b = RAMP[i + 1].match(/\w\w/g).map(h => parseInt(h, 16));
+  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * f)).join(',')})`;
+}
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function showTip(e, html) {
+  tip.innerHTML = html; tip.style.opacity = 1;
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - r.width - 8) + 'px';
+  tip.style.top = Math.max(8, e.clientY - r.height - 10) + 'px';
+}
+const hideTip = () => tip.style.opacity = 0;
+
+// ---- charts ----
+
+/* Logical size is kept in a data attribute, not read back off the canvas.
+   Setting `canvas.height` writes the content attribute too, so reading it back
+   on a redraw returns the device-pixel value and the chart grows by the pixel
+   ratio on every resize or theme flip. */
+function dpi(cv, logicalH) {
+  const r = devicePixelRatio || 1, w = cv.clientWidth || 320;
+  const h = logicalH || +cv.dataset.h || parseInt(cv.getAttribute('height')) || 150;
+  cv.dataset.h = h;
+  cv.width = Math.max(1, Math.round(w * r));
+  cv.height = Math.max(1, Math.round(h * r));
+  cv.style.height = h + 'px';
+  const c = cv.getContext('2d'); c.setTransform(r, 0, 0, r, 0, 0);
+  return [c, w, h];
+}
+
+/* Bars: thin marks, 2px surface gap between them, 4px rounded ends anchored to
+   the baseline, recessive axis. Values are not printed on every bar -- the
+   hover layer carries them. */
+function bars(cv, counts, labelFor, tipFor) {
+  const [c, w, h] = dpi(cv);
+  c.clearRect(0, 0, w, h);
+  if (!counts || !counts.length) return;
+  const pad = { l: 2, r: 2, t: 6, b: 16 };
+  const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
+  const max = Math.max(...counts) || 1;
+  const bw = iw / counts.length;
+  c.strokeStyle = css('--line'); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(pad.l, pad.t + ih + .5); c.lineTo(w - pad.r, pad.t + ih + .5); c.stroke();
+  c.fillStyle = css('--bar');
+  const rects = [];
+  counts.forEach((n, i) => {
+    const bh = n / max * ih;
+    const x = pad.l + i * bw, y = pad.t + ih - bh;
+    const ww = Math.max(1, bw - 2), rr = Math.min(4, ww / 2, bh);
+    if (bh > 0.4) {
+      c.beginPath();
+      c.moveTo(x, pad.t + ih); c.lineTo(x, y + rr);
+      c.quadraticCurveTo(x, y, x + rr, y);
+      c.lineTo(x + ww - rr, y); c.quadraticCurveTo(x + ww, y, x + ww, y + rr);
+      c.lineTo(x + ww, pad.t + ih); c.closePath(); c.fill();
+    }
+    rects.push({ x, w: ww, i });
+  });
+  c.fillStyle = css('--ink-3'); c.font = '10px ui-sans-serif'; c.textBaseline = 'top';
+  [0, Math.floor(counts.length / 2), counts.length - 1].forEach(i => {
+    const t = labelFor(i); if (!t) return;
+    c.textAlign = i === 0 ? 'left' : (i === counts.length - 1 ? 'right' : 'center');
+    c.fillText(t, pad.l + i * bw + (i === 0 ? 0 : (i === counts.length - 1 ? bw : bw / 2)),
+               pad.t + ih + 4);
+  });
+  cv.onmousemove = e => {
+    const r = cv.getBoundingClientRect(), x = e.clientX - r.left;
+    const hit = rects.find(b => x >= b.x && x <= b.x + b.w);
+    hit ? showTip(e, tipFor(hit.i)) : hideTip();
+  };
+  cv.onmouseleave = hideTip;
+}
+
+/* The zonal map. Cells are the slide's own geometry, so this is a picture of
+   the section, not an abstract chart -- which is the point: a 10% slide that
+   is uniformly 10% and one with a 30% band and a clean lobe are different
+   biology, and a single number cannot tell them apart. */
+function zonal(cv, d) {
+  const g = d.grid || [];
+  if (!g.length) return;
+  const rows = g.length, cols = g[0].length;
+  const aspect = rows / cols;
+  const want = Math.round(Math.min(300, Math.max(120, (cv.clientWidth || 320) * aspect)));
+  const [c, w, h] = dpi(cv, want);
+  c.clearRect(0, 0, w, h);
+  const cw = w / cols, ch = h / rows;
+  let max = 0;
+  g.forEach(r => r.forEach(v => { if (v != null && v > max) max = v; }));
+  max = Math.max(max, 0.5);
+  const cells = [];
+  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+    const v = g[r][k];
+    if (v == null) continue;
+    c.fillStyle = ramp(v / max);
+    c.fillRect(k * cw, r * ch, Math.ceil(cw), Math.ceil(ch));
+    cells.push({ x: k * cw, y: r * ch, w: cw, h: ch, v });
+  }
+  $('#zhi').textContent = fmt(max, 1) + '%';
+  cv.onmousemove = e => {
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const hit = cells.find(q => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h);
+    hit ? showTip(e, `<b>${fmt(hit.v)}%</b> fat of tissue<br><span style="color:var(--ink-3)">in this region</span>`) : hideTip();
+  };
+  cv.onmouseleave = hideTip;
+}
+
+/* Every canvas, from the current metadata. Separated from `load` so a theme
+   flip or a window resize repaints the charts without touching the viewer. */
+function redraw() {
+  if (!M) return;
+  const d = M.droplets, e = d.histogram.edges;
+  bars($('#hist'), d.histogram.counts,
+    i => i === 0 ? fmt(e[0], 0) + ' µm²'
+                 : (i === d.histogram.counts.length - 1 ? fmt(e[e.length - 1], 0) : ''),
+    i => `<b>${int(d.histogram.counts[i])}</b> droplets<br><span style="color:var(--ink-3)">${fmt(e[i], 1)}–${fmt(e[i + 1], 1)} µm²</span>`);
+
+  zonal($('#zonal'), M.distribution);
+
+  const th = M.distribution.tile_histogram, te = th.edges;
+  bars($('#thist'), th.counts,
+    i => i === 0 ? '0%' : (i === th.counts.length - 1 ? fmt(te[te.length - 1], 1) + '%' : ''),
+    i => `<b>${int(th.counts[i])}</b> tiles<br><span style="color:var(--ink-3)">${fmt(te[i])}–${fmt(te[i + 1])}% fat</span>`);
+}
+
+// ---- load a slide ----
+
+async function load(name) {
+  M = await (await fetch('/api/meta/' + encodeURIComponent(name))).json();
+  const m = M;
+
+  $('#pct').textContent = fmt(m.fat_percent, 2);
+  $('#herocap').textContent =
+    `${int(m.fat_px)} fat pixels over ${int(m.tissue_px)} tissue pixels · ${fmt(m.tissue_mm2, 1)} mm² of tissue`;
+  $('#cov').textContent = m.coverage === 'complete'
+    ? `census · all ${int(m.tiles)} tissue tiles measured`
+    : `${m.coverage} — a sample, not a census`;
+
+  const d = m.droplets;
+  $('#dtot').textContent = int(d.total);
+  $('#dmed').textContent = fmt(d.area_um2.median, 1) + ' µm²';
+  $('#dmac').textContent = int(d.macro_n);
+  $('#dmic').textContent = int(d.micro_n);
+  $('#dnote').textContent =
+    `Bands follow the project's own definitions: micro ${d.micro_band_um2[0]}–${d.micro_band_um2[1]} µm², macro ${d.macro_band_um2[0]}–${d.macro_band_um2[1]} µm². ${d.note}.`;
+  const dist = m.distribution;
+  const tf = dist.tile_fat_percent;
+  $('#zspread').textContent = `${fmt(tf.p10)}% – ${fmt(tf.p90)}%`;
+  const spread = tf.p90 - tf.p10;
+  $('#znote').textContent = spread > Math.max(1.5, tf.median * 0.9)
+    ? 'Fat is unevenly distributed across this section — the map, not the average, carries that.'
+    : 'Fat is distributed fairly evenly across this section.';
+  redraw();
+
+  $('#cmp').textContent = fmt(m.certainty.mean_probability_of_called_fat, 3);
+  $('#camb').textContent = fmt(100 * m.certainty.ambiguous_fraction_of_tissue, 3) + '% of tissue';
+  $('#cnote').textContent = m.certainty.note + '.';
+
+  const mo = m.model || {};
+  $('#prov').textContent = `${m.width.toLocaleString()}×${m.height.toLocaleString()} px · ${m.mpp} µm/px`;
+  $('#meta').innerHTML = [
+    ['Fold (held-out batch)', mo.held_out_batch || mo.fold || '—'],
+    ['Stain normalization', mo.stain_normalize],
+    ['Inference scale', `${m.training_mpp} µm/px${m.resampled_to_training_mpp ? ' (resampled)' : ' (native)'}`],
+    ['Threshold', m.threshold],
+    ['Tiles measured', int(m.tiles)],
+    ['Pass time', `${fmt(m.seconds, 0)} s · ${fmt(m.ms_per_tile, 0)} ms/tile`],
+  ].map(([k, v]) => `<div class="row"><span>${k}</span><span>${v}</span></div>`).join('');
+  $('#tbl').innerHTML =
+    '<tr><th>quantity</th><th>value</th></tr>' +
+    [['fat % of tissue', fmt(m.fat_percent, 2)], ['fat px', int(m.fat_px)],
+     ['tissue px', int(m.tissue_px)], ['tissue mm²', fmt(m.tissue_mm2, 1)],
+     ['tiles', int(m.tiles)], ['droplets', int(d.total)],
+     ['median droplet µm²', fmt(d.area_um2.median, 1)],
+     ['tile fat % median', fmt(tf.median)], ['tile fat % p90', fmt(tf.p90)]]
+      .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  $('#caveat').textContent = m.validation_note;
+
+  // viewer
+  if (viewer) viewer.destroy();
+  viewer = OpenSeadragon({
+    id: 'osd', prefixUrl: '/static/images/',
+    tileSources: '/slide/' + encodeURIComponent(name) + '.dzi',
+    showNavigator: true, navigatorPosition: 'BOTTOM_RIGHT',
+    maxZoomPixelRatio: 2, visibilityRatio: 1, constrainDuringPan: true,
+    animationTime: .4, blendTime: .1,
+  });
+  viewer.addOnceHandler('open', () => {
+    viewer.addTiledImage({
+      tileSource: '/overlay/' + encodeURIComponent(name) + '.dzi',
+      opacity: $('#op').value / 100,
+      success: ev => { overlayItem = ev.item; applyOverlay(); },
+    });
+  });
+}
+
+function applyOverlay() {
+  if (!overlayItem) return;
+  const on = $('#ov').getAttribute('aria-pressed') === 'true';
+  overlayItem.setOpacity(on ? $('#op').value / 100 : 0);
+}
+
+$('#ov').onclick = () => {
+  const on = $('#ov').getAttribute('aria-pressed') === 'true';
+  $('#ov').setAttribute('aria-pressed', String(!on));
+  $('#ov').querySelector('span:nth-child(2)').textContent = !on ? 'Overlay on' : 'Overlay off';
+  applyOverlay();
+};
+$('#op').oninput = () => { $('#opv').textContent = $('#op').value + '%'; applyOverlay(); };
+addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); $('#ov').click(); }
+});
+$('#theme').onclick = () => {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+  // Charts only. Reloading the slide would tear down and rebuild the whole
+  // OpenSeadragon stage, which in a demo reads as the viewer crashing.
+  redraw();
+};
+
+$('#run').onclick = async () => {
+  if (!viewer || !M) return;
+  const b = viewer.viewport.viewportToImageRectangle(viewer.viewport.getBounds());
+  const w = Math.round(Math.min(2048, Math.max(512, b.width)));
+  const h = Math.round(Math.min(2048, Math.max(512, b.height)));
+  $('#live').textContent = 'running…';
+  const u = `/api/infer/${encodeURIComponent($('#pick').value)}?x=${Math.round(b.x)}&y=${Math.round(b.y)}&w=${w}&h=${h}`;
+  try {
+    const r = await (await fetch(u)).json();
+    if (r.error) { $('#live').textContent = r.error; return; }
+    $('#live').innerHTML =
+      `<b>${fmt(r.fat_percent)}%</b> fat of tissue in this ${r.w}×${r.h} px region` +
+      `<br><span style="color:var(--ink-3)">read ${fmt(r.read_ms, 0)} ms · inference ${fmt(r.infer_ms, 0)} ms · ${r.note}</span>`;
+  } catch (err) { $('#live').textContent = String(err); }
+};
+
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(redraw, 150); });
+
+(async () => {
+  const slides = await (await fetch('/api/slides')).json();
+  const pick = $('#pick');
+  pick.innerHTML = slides.map(s =>
+    `<option value="${s.name}">${s.name} — ${fmt(s.fat_percent)}% fat</option>`).join('');
+  pick.onchange = () => {
+    // Each slide gets its own URL, so a demo can be walked in a fixed order
+    // from bookmarks rather than from a dropdown nobody can find under
+    // pressure -- and so a specific slide can be sent to someone.
+    history.replaceState(null, '', '/v/' + encodeURIComponent(pick.value));
+    load(pick.value);
+  };
+  if (!slides.length) return;
+  const wanted = decodeURIComponent(location.pathname.replace(/^\/v\//, ''));
+  const start = slides.some(s => s.name === wanted) ? wanted : slides[0].name;
+  pick.value = start;
+  load(start);
+})();
+</script>

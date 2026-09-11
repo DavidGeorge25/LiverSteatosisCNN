@@ -16,7 +16,8 @@ project: classical CV mask generation, no model training.
 | 6. Cohort survey + parameter sweep | **done** |
 | 7. Pseudo-label export for training | not started (one flag: drop `--no-save-tiles`) |
 | 8. Cross-batch validation, 9 staining runs | **done, unretuned** — [docs/STEATOSIS_NINE_BATCHES.md](docs/STEATOSIS_NINE_BATCHES.md) |
-| 9. U-Net training on the pseudo-labels | **first fold trained** — holds the CCl4 floor, reproduces the diet validation at AUC 1.000 — [docs/STEATOSIS_TRAINING.md](docs/STEATOSIS_TRAINING.md) §7 |
+| 9. U-Net training on the pseudo-labels | **all 8 leave-one-batch-out folds trained on Fir** — AUC 1.000 on the reserved batch in every fold; the CCl4 fold beats the teacher's floor (0.120% vs 0.166%) — [docs/STEATOSIS_TRAINING.md](docs/STEATOSIS_TRAINING.md) §7 |
+| 10. Whole-slide viewer + exhaustive measurement | **done** — census rather than a 6% sample, native-resolution only, continuous output with no grade — [docs/VIEWER.md](docs/VIEWER.md) |
 
 ## Setup
 
@@ -463,9 +464,15 @@ cluster/           SLURM job scripts and Alliance setup for Fir
 docs/
   BALLOONING_TILESET.md     design record for the tile-level switch + inventory
   BALLOONING_TILE_BRIEF.md  the one-page brief the pathologist receives
+mashpath/viewer/    the whole-slide viewer: exhaustive native-resolution
+                    measurement (precompute.py), the tile geometry the tissue
+                    and the overlay share (dzi.py), and a stdlib server
+                    (server.py). OpenSeadragon is vendored in static/ because
+                    compute nodes have no outbound network.
 tests/
   test_core.py            unit tests incl. the review contract
   test_tileset.py         the tile-set draw: caps, split, repeats, leak
+  test_viewer.py          pyramid alignment, mask sparsity, the no-grade contract
   regression_steatosis.py steatosis must stay byte-identical; golden/ is the baseline
 data/            slides (gitignored)
 outputs/         per-slide results, QC, CSVs (gitignored)
